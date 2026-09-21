@@ -1,0 +1,17 @@
+# Build products / caches
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode user-specific project state
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# SwiftPM
+.swiftpm/
+.build/
+
+# macOS
+.DS_Store

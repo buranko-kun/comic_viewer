@@ -1,0 +1,26 @@
+{
+  "name": "Example Comics Server",
+  "comics": [
+    {
+      "id": "circle-chase-001",
+      "title": "Deadpool - The Circle Chase 001",
+      "description": "First issue of the 1993 Deadpool miniseries.",
+      "cover": "covers/circle-chase-001.jpg",
+      "series": "Deadpool - The Circle Chase",
+      "format": "cbz",
+      "mirrors": [
+        "files/circle-chase-001.cbz",
+        "https://backup.example.com/circle-chase-001.cbz"
+      ],
+      "metadata": {
+        "year": 1993,
+        "writer": "Fabian Nicieza",
+        "artist": "Joe Madureira"
+      }
+    }
+  ],
+  "catalogs": [
+    { "name": "Hulk", "url": "hulk/index.json" },
+    "spider-man/index.json"
+  ]
+}
