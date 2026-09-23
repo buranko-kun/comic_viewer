@@ -295,7 +295,7 @@ private func openArchiveFully(_ archive: URL, startIndex: Int? = nil) {
                 return
             }
 
-            let images = AppModel.scanRecursive(dir)
+            let images = Self.scanRecursive(dir)
             guard !images.isEmpty else {
                 try? FileManager.default.removeItem(at: dir)
                 self.reader.setFailure(name: archive.lastPathComponent, url: archive)
