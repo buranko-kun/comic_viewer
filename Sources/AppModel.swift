@@ -412,24 +412,6 @@ final class AppModel {
                    legacyStateURLs: legacy, initialImage: initialImage, start: startIndex)
     }
 
-    /// Compatibility bridge for the application-level opener.
-    private func beginComic(
-        items newItems: [URL],
-        folder newFolder: URL?,
-        comicKey newKey: String?,
-        legacyStateURLs newLegacy: [URL] = [],
-        initialImage: URL? = nil,
-        start explicitStart: Int? = nil
-    ) {
-        reader.beginComic(
-            items: newItems,
-            folder: newFolder,
-            comicKey: newKey,
-            legacyStateURLs: newLegacy,
-            initialImage: initialImage,
-            start: explicitStart
-        )
-    }
 
     // MARK: Helpers
 
