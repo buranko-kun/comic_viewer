@@ -16,7 +16,8 @@ final class SourceOpener {
         self.reader = reader
     }
 
-// MARK: Opening\n
+// MARK: Opening
+
 /// `startIndex` opens directly at that page (used by the chapter grid), overriding resume —
 /// it survives an archive's asynchronous extraction, unlike a follow-up `goTo`.
 func open(urls: [URL], startIndex: Int? = nil) {
@@ -325,7 +326,7 @@ private func openArchiveFully(_ archive: URL, startIndex: Int? = nil) {
 }
 
 /// Cancel in-flight reader work. Archive session directories are owned by the shared manager.
-func cancel() {
+func cleanupTempDirs() {
     openingTask?.cancel()
     openingTask = nil
     reader.cancel()
@@ -400,8 +401,6 @@ nonisolated static func scanRecursive(_ dir: URL) -> [URL] {
         }
     }
     return out.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-}
-
 }
 
     /// Cancel only the opener's in-flight work. Session cleanup remains coordinated by AppModel.
