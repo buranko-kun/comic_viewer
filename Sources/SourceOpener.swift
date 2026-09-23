@@ -325,14 +325,6 @@ private func openArchiveFully(_ archive: URL, startIndex: Int? = nil) {
     }
 }
 
-/// Cancel in-flight reader work. Archive session directories are owned by the shared manager.
-func cleanupTempDirs() {
-    openingTask?.cancel()
-    openingTask = nil
-    reader.cancel()
-    Task { await ArchiveSessionManager.shared.cleanup() }
-}
-
 /// Compatibility bridge for the application-level opener.
 private func beginComic(
     items newItems: [URL],
