@@ -11,8 +11,12 @@ jobs:
   test:
     runs-on: macos-26
     steps:
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
       - uses: actions/checkout@v4
 
+      # XcodeGen 2.46 generates project format 77, so the CI runner must use a modern Xcode.
       - name: Install XcodeGen
         run: brew install xcodegen
 
