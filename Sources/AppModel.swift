@@ -404,7 +404,7 @@ final class AppModel {
         // (e.g. opening a folder whose pages live in a subfolder).
         var scanned = Self.scan(dir)
         if scanned.isEmpty { scanned = Self.scanRecursive(dir) }
-        guard !scanned.isEmpty else { finishOpening(); return }
+        guard !scanned.isEmpty else { reader.finishOpening(); return }
         let legacy = [dir.appendingPathComponent(Self.stateFileName),
                       dir.appendingPathComponent(Self.legacyFileName)]
         beginComic(items: scanned, folder: dir,
