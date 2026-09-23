@@ -500,21 +500,12 @@ final class LibraryModel {
         }
     }
 
-    // MARK: - Archive extraction cache (for the chapter grid)
+    // MARK: - Archive sessions
 
-    private var archiveDirs: [String: URL] = [:]
-
+    /// Resolve an archive through the shared session manager. If the reader already opened the
+    /// archive in streamed mode, the manager waits for its background fill and reuses that directory
+    /// instead of extracting a second copy.
     private func extractedDir(for archive: URL) async -> URL? {
-        let key = archive.standardizedFileURL.path
-        if let d = archiveDirs[key], FileManager.default.fileExists(atPath: d.path) { return d }
-        let extracted = await Task.detached { ArchiveExtractor.extract(archive) }.value
-        if let extracted { archiveDirs[key] = extracted }
-        return extracted
-    }
-
-    /// Remove extracted archive temp dirs (call on quit).
-    func cleanupTempDirs() {
-        for d in archiveDirs.values { try? FileManager.default.removeItem(at: d) }
-        archiveDirs.removeAll()
+        await ArchiveSessionManager.shared.extractFully(for: archive)?.dir
     }
 }

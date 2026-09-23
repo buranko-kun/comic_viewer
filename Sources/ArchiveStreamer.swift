@@ -46,4 +46,11 @@ actor ArchiveStreamer {
             ArchiveExtractor.extractAllInto(archive, dir: dir)
         }
     }
+
+    /// Wait until the background fill has completed, if one is running.
+    /// The library uses this when it needs a complete page set, such as chapter resolution.
+    func finishBackgroundFill() async {
+        guard let fullTask else { return }
+        await fullTask.value
+    }
 }
