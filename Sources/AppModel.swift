@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// Application-level facade.
