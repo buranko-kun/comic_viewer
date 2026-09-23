@@ -17,8 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
-            AppModel.shared.cleanupTempDirs()     // remove archive temp extractions
-            LibraryModel.shared.cleanupTempDirs() // …and the chapter-grid extractions
+            AppModel.shared.cleanupTempDirs()     // remove shared archive temp extractions
             ComicServer.shared.stop()             // stop sharing + clean server temp dirs
         }
     }
