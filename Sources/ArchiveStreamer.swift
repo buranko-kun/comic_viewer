@@ -52,7 +52,7 @@ actor ArchiveStreamer {
                     return await interactiveTask.value
                 }
 
-                await interactiveTask.value
+                _ = await interactiveTask.value
                 self.interactiveTask = nil
                 self.interactiveEntry = nil
                 continue
