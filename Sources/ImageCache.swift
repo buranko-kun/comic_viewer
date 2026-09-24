@@ -221,7 +221,7 @@ actor RemotePageCache {
         }
         await prefetchScheduler.setTarget(targets, maxPixel: maxPixel)
         ReaderPerformance.event(
-            "remote_page_cache prefetch_target=\\(targets.count)"
+            "remote_page_cache prefetch_target=\(targets.count)"
         )
     }
 
