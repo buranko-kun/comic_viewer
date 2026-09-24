@@ -606,6 +606,7 @@ struct ContentView: View {
                 PageScrubber(
                     urls: model.items,
                     currentIndex: model.index,
+                    chapters: model.chapterEntries,
                     spreadEnabled: model.spreadEnabled,
                     readingDirection: readerSettings.readingDirection,
                     cache: thumbCache,
