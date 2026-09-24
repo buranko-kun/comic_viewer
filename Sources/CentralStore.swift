@@ -49,6 +49,9 @@ enum CentralStore {
     /// When a comic was last read — the state file's modification time (nil if never opened).
     /// Used to order the library's "Continue Reading" shelf by recency.
     static func lastReadDate(forKey comicKey: String) -> Date? {
+        if let state = loadState(forKey: comicKey), let date = state.lastReadAt {
+            return date
+        }
         let url = stateDir.appendingPathComponent(sha256(comicKey) + ".json")
         return (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
