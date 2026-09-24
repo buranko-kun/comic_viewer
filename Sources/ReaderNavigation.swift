@@ -196,17 +196,24 @@ struct ReaderNavigation {
     }
 
     @discardableResult
+    mutating func firstOfChapter() -> Bool {
+        let idxs = orderedChapterIndices()
+        return setIndex(idxs.last { $0 <= index } ?? 0)
+    }
+
+    @discardableResult
     mutating func jumpToChapter(orderedIndex: Int) -> Bool {
         let idxs = orderedChapterIndices()
         guard idxs.indices.contains(orderedIndex) else { return false }
         return setIndex(idxs[orderedIndex])
     }
 
-    mutating func renameChapter(atIndex i: Int, to name: String) {
-        guard items.indices.contains(i) else { return }
+    @discardableResult
+    mutating func renameChapter(atIndex i: Int, to name: String) -> Bool {
+        guard items.indices.contains(i) else { return false }
 
         let key = pageKey(for: items[i])
-        guard chapterFiles().contains(key) else { return }
+        guard chapterFiles().contains(key) else { return false }
 
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -214,14 +221,17 @@ struct ReaderNavigation {
         } else {
             chapterNames[key] = trimmed
         }
+        return true
     }
 
-    mutating func deleteChapter(atIndex i: Int) {
-        guard items.indices.contains(i) else { return }
+    @discardableResult
+    mutating func deleteChapter(atIndex i: Int) -> Bool {
+        guard items.indices.contains(i) else { return false }
 
         let key = pageKey(for: items[i])
         chapters.remove(key)
         chapterNames[key] = nil
+        return true
     }
 
     // MARK: Prefetch support
