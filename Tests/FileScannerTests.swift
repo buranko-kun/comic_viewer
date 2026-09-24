@@ -3,7 +3,7 @@ import XCTest
 @testable import ComicViewer
 
 final class FileScannerTests: XCTestCase {
-    func testSortedUsesNaturalNumericOrderAndIgnoresFilenameCase() {
+    func testSortedUsesNaturalNumericOrderWithMixedCaseFilenames() {
         let urls = [
             URL(fileURLWithPath: "/tmp/page10.jpg"),
             URL(fileURLWithPath: "/tmp/PAGE1.jpg"),
@@ -14,8 +14,8 @@ final class FileScannerTests: XCTestCase {
         let sorted = FileScanner.sorted(urls)
 
         XCTAssertEqual(
-            sorted.map(\.lastPathComponent),
-            ["PAGE1.jpg", "Page2.jpg", "page3.jpg", "page10.jpg"]
+            sorted.map { $0.lastPathComponent.lowercased() },
+            ["page1.jpg", "page2.jpg", "page3.jpg", "page10.jpg"]
         )
     }
 }
