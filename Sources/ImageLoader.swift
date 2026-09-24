@@ -42,6 +42,14 @@ enum ImageLoader {
     }
 
     private static func decodeDisplay(source src: CGImageSource, maxPixel: Int) -> DisplayImage? {
+        let startedAt = ReaderPerformance.now()
+        defer {
+            ReaderPerformance.metric(
+                "image_decode",
+                milliseconds: ReaderPerformance.milliseconds(since: startedAt)
+            )
+        }
+
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
