@@ -19,7 +19,6 @@ struct ReaderNavigation {
         self.items = items
         self.folder = folder
         index = 0
-        spreadEnabled = false
         resetState()
         loadBookmarkChapters()
     }
