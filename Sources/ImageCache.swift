@@ -14,7 +14,7 @@ actor ImageCache {
     private let maxBytes: Int
     private let maxConcurrentPrefetch = 3
 
-    init(maxBytes: Int = Self.defaultMaxBytes) {
+    init(maxBytes: Int = 256 * 1024 * 1024) {
         self.maxBytes = max(1, maxBytes)
     }
 
