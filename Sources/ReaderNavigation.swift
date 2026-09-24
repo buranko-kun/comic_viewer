@@ -9,7 +9,7 @@ struct ReaderNavigation {
     private(set) var index = 0
     private(set) var spreadEnabled = false
     private(set) var chapters: Set<String> = []
-    private(set) var chapterNames: [String: String] = []
+    private(set) var chapterNames: [String: String] = [:]
 
     private var bookmarkNames: [String: String] = [:]
     private var folder: URL?
