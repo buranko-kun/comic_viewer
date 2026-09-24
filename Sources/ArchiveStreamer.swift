@@ -53,4 +53,18 @@ actor ArchiveStreamer {
         guard let fullTask else { return }
         await fullTask.value
     }
+
+    /// Cancel all extraction work owned by this stream.
+    ///
+    /// Session eviction calls this before deleting the backing directory so no detached task can
+    /// continue writing into a temp directory that no longer belongs to a live session.
+    func cancel() {
+        fullTask?.cancel()
+        fullTask = nil
+
+        for task in inFlight.values {
+            task.cancel()
+        }
+        inFlight.removeAll()
+    }
 }
