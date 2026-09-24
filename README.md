@@ -44,3 +44,21 @@ The app runs headless test harnesses via CLI flags, e.g.:
 ComicViewer --readcomicstest   # connector parser tests
 ComicViewer --chaptertest <folder>
 ```
+
+
+### Reader performance diagnostics
+
+PR #10 adds measurement-only instrumentation under the unified logging subsystem
+`com.esteban.ComicViewer`, category `Performance`. It records first-visible-page latency,
+per-page load signposts, image decode time, cache hits/misses, archive preparation/extraction time,
+and remote page probing/loading time.
+
+To inspect the numeric logs from Terminal:
+
+```bash
+log show --style compact --info \
+  --predicate 'subsystem == "com.esteban.ComicViewer" AND category == "Performance"'
+```
+
+For interactive timing, open Instruments → Points of Interest and select the ComicViewer process.
+The `Reader Page Load` signposts can then be compared against cache/decode/archive/network events.
