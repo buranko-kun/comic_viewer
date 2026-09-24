@@ -676,6 +676,7 @@ struct ContentView: View {
         ChapterGridOverlay(
             entries: model.chapterEntries,
             currentIndex: model.index,
+            totalPageCount: model.items.count,
             cache: thumbCache,
             pageIndex: $chapterGridPage,
             onSelect: { index in
