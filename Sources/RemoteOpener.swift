@@ -27,6 +27,7 @@ final class RemoteOpener {
         let key = CentralStore.key(for: comic.url)
 
         if let pages = comic.remotePages, !pages.isEmpty {
+            ReaderPerformance.event("remote_open mode=fixed_pages pages=\(pages.count)")
             reader.beginComic(
                 items: pages,
                 folder: nil,
@@ -58,6 +59,7 @@ final class RemoteOpener {
            pageCount > 0 {
             let items = (1...pageCount).compactMap(pageURL)
             if !items.isEmpty {
+                ReaderPerformance.event("remote_open mode=cached_count pages=\(items.count)")
                 reader.beginComic(
                     items: items,
                     folder: nil,
@@ -72,10 +74,15 @@ final class RemoteOpener {
 
         let hint = comic.remotePageHint
         openingTask = Task { [weak self] in
+            let startedAt = ReaderPerformance.now()
             let pages = await RemotePageProber.probePages(
                 template: template,
                 pad: pad,
                 hint: hint
+            )
+            ReaderPerformance.metric(
+                "remote_page_probe",
+                milliseconds: ReaderPerformance.milliseconds(since: startedAt)
             )
             guard !Task.isCancelled,
                   let self,
@@ -85,11 +92,13 @@ final class RemoteOpener {
             }
 
             if pages.isEmpty {
+                ReaderPerformance.event("remote_open probe_failed")
                 self.reader.setFailure(
                     name: comic.title,
                     url: comic.url
                 )
             } else {
+                ReaderPerformance.event("remote_open mode=probed pages=\(pages.count)")
                 self.reader.beginComic(
                     items: pages,
                     folder: nil,
