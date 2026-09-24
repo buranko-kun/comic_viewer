@@ -19,6 +19,35 @@ final class ReaderSettings {
         var rotated: Bool { self == .vertical }
     }
 
+    /// How pages are arranged and how horizontal keyboard navigation is interpreted.
+    /// Logical page order remains unchanged so saved progress continues to point at the same page.
+    enum ReadingDirection: String, CaseIterable, Identifiable {
+        case leftToRight, rightToLeft
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .leftToRight: return "Left to right"
+            case .rightToLeft: return "Right to left"
+            }
+        }
+
+        var isRightToLeft: Bool {
+            self == .rightToLeft
+        }
+
+        /// Whether the physical right arrow advances to the next logical page.
+        var rightArrowAdvances: Bool {
+            !isRightToLeft
+        }
+
+        /// Arrange two logically consecutive pages for physical left/right presentation.
+        func arrangeSpread<T>(_ first: T, _ second: T) -> (left: T, right: T) {
+            isRightToLeft ? (second, first) : (first, second)
+        }
+    }
+
     var defaultView: DefaultView {
         didSet { UserDefaults.standard.set(defaultView.rawValue, forKey: Keys.defaultView) }
     }
@@ -32,10 +61,15 @@ final class ReaderSettings {
         didSet { UserDefaults.standard.set(showProgressBar, forKey: Keys.progressBar) }
     }
 
+    var readingDirection: ReadingDirection {
+        didSet { UserDefaults.standard.set(readingDirection.rawValue, forKey: Keys.readingDirection) }
+    }
+
     private enum Keys {
         static let defaultView = "reader.defaultView"
         static let fitWide = "reader.fitWideToWidth"
         static let progressBar = "reader.showProgressBar"
+        static let readingDirection = "reader.readingDirection"
     }
 
     private init() {
@@ -44,5 +78,8 @@ final class ReaderSettings {
         // Default the two toggles ON (their previous fixed behavior) unless the user changed them.
         fitWideToWidth = d.object(forKey: Keys.fitWide) as? Bool ?? true
         showProgressBar = d.object(forKey: Keys.progressBar) as? Bool ?? true
+        readingDirection = ReadingDirection(
+            rawValue: d.string(forKey: Keys.readingDirection) ?? ""
+        ) ?? .leftToRight
     }
 }
