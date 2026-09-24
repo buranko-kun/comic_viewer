@@ -19,14 +19,21 @@ final class ImageCacheTests: XCTestCase {
         let firstCost = ImageCache.estimatedCost(of: first)
         let cache = ImageCache(maxBytes: firstCost)
 
-        XCTAssertNotNil(await cache.image(for: firstURL, maxPixel: 64))
-        XCTAssertEqual(await cache.imageCount, 1)
-        XCTAssertEqual(await cache.estimatedMemoryBytes, firstCost)
+        let firstResult = await cache.image(for: firstURL, maxPixel: 64)
+        let firstCount = await cache.imageCount
+        let firstBytes = await cache.estimatedMemoryBytes
 
-        XCTAssertNotNil(await cache.image(for: secondURL, maxPixel: 64))
+        XCTAssertNotNil(firstResult)
+        XCTAssertEqual(firstCount, 1)
+        XCTAssertEqual(firstBytes, firstCost)
 
-        XCTAssertEqual(await cache.imageCount, 1)
-        XCTAssertEqual(await cache.estimatedMemoryBytes, firstCost)
+        let secondResult = await cache.image(for: secondURL, maxPixel: 64)
+        let secondCount = await cache.imageCount
+        let secondBytes = await cache.estimatedMemoryBytes
+
+        XCTAssertNotNil(secondResult)
+        XCTAssertEqual(secondCount, 1)
+        XCTAssertEqual(secondBytes, firstCost)
     }
 
     func testOversizeImageIsKeptAsTheOnlyCachedImage() async throws {
@@ -39,9 +46,13 @@ final class ImageCacheTests: XCTestCase {
         let cost = ImageCache.estimatedCost(of: decoded)
         let cache = ImageCache(maxBytes: max(1, cost / 4))
 
-        XCTAssertNotNil(await cache.image(for: url, maxPixel: 128))
-        XCTAssertEqual(await cache.imageCount, 1)
-        XCTAssertEqual(await cache.estimatedMemoryBytes, cost)
+        let result = await cache.image(for: url, maxPixel: 128)
+        let count = await cache.imageCount
+        let bytes = await cache.estimatedMemoryBytes
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(bytes, cost)
     }
 
     private func makeImage(named name: String, width: Int, height: Int) throws -> URL {
