@@ -185,7 +185,7 @@ final class DownloadManager {
 
     /// A unique, filesystem-safe destination in the library's downloads folder.
     private static func destinationURL(title: String, ext: String) async -> URL {
-        let folder = await LibraryModel.shared.downloadFolder(forTitle: title)
+        let folder = LibraryModel.shared.downloadFolder(forTitle: title)
         let base = sanitize(title)
         let fm = FileManager.default
         var candidate = folder.appendingPathComponent("\(base).\(ext)")
