@@ -30,7 +30,7 @@ enum ArchiveCover {
         // Fallback: full extract via the shared extractor, copy the first image.
         if let tmp = ArchiveExtractor.extract(archive) {
             defer { try? fm.removeItem(at: tmp) }
-            let imgs = AppModel.scanRecursive(tmp)
+            let imgs = FileScanner.scanRecursive(tmp)
             if let first = imgs.first(where: isNonEmpty) {
                 let dest = dir.appendingPathComponent(key + "." + first.pathExtension.lowercased())
                 try? fm.removeItem(at: dest)
