@@ -60,11 +60,11 @@ final class ArchiveSessionManagerTests: XCTestCase {
     }
 
     private func makeURL(_ name: String) -> URL {
-        URL(fileURLWithPath: "/tmp/ComicViewerTests/(name)")
+        URL(fileURLWithPath: "/tmp/ComicViewerTests/" + name)
     }
 
     private func makeDirectory(_ name: String) -> URL {
-        let url = URL(fileURLWithPath: "/tmp/ComicViewerTests/(UUID().uuidString)-(name)")
+        let url = URL(fileURLWithPath: "/tmp/ComicViewerTests/" + UUID().uuidString + "-" + name)
         try? FileManager.default.createDirectory(
             at: url,
             withIntermediateDirectories: true
