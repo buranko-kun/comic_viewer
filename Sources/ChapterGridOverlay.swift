@@ -49,7 +49,7 @@ struct ChapterGridOverlay: View {
         guard let entry = currentEntry else { return nil }
         let end = chapterEndIndex(for: entry)
         let page = min(max(currentIndex + 1, entry.page), end)
-        return "p. (page - entry.page + 1) / (max(1, end - entry.index))"
+        return "p. \(page - entry.page + 1) / \(max(1, end - entry.index))"
     }
 
     var body: some View {
@@ -60,7 +60,7 @@ struct ChapterGridOverlay: View {
             VStack(spacing: 18) {
                 HStack(alignment: .center, spacing: 14) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Chapters ((entries.count))")
+                        Text("Chapters (\(entries.count))")
                             .font(.title2.bold())
 
                         if let entry = currentEntry, let progress = currentChapterProgress {
@@ -68,7 +68,7 @@ struct ChapterGridOverlay: View {
                                 Circle()
                                     .fill(.red)
                                     .frame(width: 7, height: 7)
-                                Text("Reading (entry.name)")
+                                Text("Reading \(entry.name)")
                                     .font(.callout.weight(.medium))
                                 if let pageText = currentChapterPageText {
                                     Text("·")
@@ -142,7 +142,7 @@ struct ChapterGridOverlay: View {
                             }
                             .disabled(pageIndex == 0)
 
-                            Text("Page (min(pageIndex, pageCount - 1) + 1) / (pageCount)")
+                            Text("Page \(min(pageIndex, pageCount - 1) + 1) / \(pageCount)")
                                 .monospacedDigit()
 
                             Button { pageIndex = min(pageCount - 1, pageIndex + 1) } label: {
@@ -265,7 +265,7 @@ private struct ThumbCell: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
 
-                Text("pp. (entry.page)–(entry.page + chapterPageCount - 1)")
+                Text("pp. \(entry.page)–\(entry.page + chapterPageCount - 1)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
