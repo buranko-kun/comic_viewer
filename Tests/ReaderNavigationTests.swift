@@ -1,0 +1,89 @@
+import XCTest
+
+@testable import ComicViewer
+
+final class ReaderNavigationTests: XCTestCase {
+    func testSetIndexNormalizesToSpreadStart() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 4)
+
+        navigation.configure(items: pages, folder: nil)
+
+        XCTAssertTrue(navigation.goTo(index: 3))
+        XCTAssertEqual(navigation.index, 3)
+
+        XCTAssertEqual(navigation.toggleSpread(), "Two-page spread")
+        XCTAssertEqual(navigation.index, 2)
+
+        let state = navigation.makeState(comicKey: nil)
+        XCTAssertEqual(state.lastPage, pages[3].absoluteString)
+    }
+
+    func testChapterOrderingUsesPageOrderAndCustomNames() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 5)
+
+        navigation.configure(items: pages, folder: nil)
+
+        XCTAssertEqual(navigation.goTo(index: 1), true)
+        XCTAssertTrue(navigation.toggleChapter().contains("Chapter 1"))
+
+        XCTAssertEqual(navigation.goTo(index: 4), true)
+        XCTAssertTrue(navigation.toggleChapter().contains("Chapter 2"))
+
+        navigation.renameChapter(atIndex: 4, to: "Finale")
+
+        XCTAssertEqual(
+            navigation.orderedChapters.map(\.name),
+            ["Chapter 1", "Finale"]
+        )
+        XCTAssertEqual(
+            navigation.chapterEntries.map(\.index),
+            [1, 4]
+        )
+    }
+
+    func testLoadStateMapsSavedPageAndChaptersToCurrentItems() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 3)
+
+        let state = ComicState(
+            version: 3,
+            chapters: [pages[1].absoluteString],
+            chapterNames: [pages[1].absoluteString: "Chapter Two"],
+            lastPage: pages[2].absoluteString,
+            lastIndex: 2,
+            pageCount: 3,
+            manualRotate: nil,
+            path: nil
+        )
+
+        navigation.configure(items: pages, folder: nil)
+        navigation.loadState(state)
+
+        XCTAssertEqual(navigation.resumeIndex(), 2)
+        XCTAssertEqual(navigation.orderedChapters.first?.name, "Chapter Two")
+    }
+
+    func testNavigationBoundariesDoNotMove() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 2)
+
+        navigation.configure(items: pages, folder: nil)
+
+        XCTAssertFalse(navigation.prev())
+        XCTAssertEqual(navigation.index, 0)
+
+        XCTAssertTrue(navigation.last())
+        XCTAssertEqual(navigation.index, 1)
+
+        XCTAssertFalse(navigation.next())
+        XCTAssertEqual(navigation.index, 1)
+    }
+
+    private func makePages(count: Int) -> [URL] {
+        (1...count).map {
+            URL(fileURLWithPath: "/tmp/ComicViewerTests/page\($0).jpg")
+        }
+    }
+}
