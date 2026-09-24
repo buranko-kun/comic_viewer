@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
     @State private var keyMonitor = KeyMonitor()
+    @State private var readerSettings = ReaderSettings.shared
 
     // Page counter caption (toggled with H, off by default).
     @State private var captionOpacity = 0.0
@@ -247,9 +248,12 @@ struct ContentView: View {
         if model.spreadEnabled,
            let first = model.current,
            let second = model.secondary {
+            let left = readerSettings.readingDirection.isRightToLeft ? second : first
+            let right = readerSettings.readingDirection.isRightToLeft ? first : second
+
             HStack(spacing: 0) {
-                RotatingImageView(image: first, rotate: false)
-                RotatingImageView(image: second, rotate: false)
+                RotatingImageView(image: left, rotate: false)
+                RotatingImageView(image: right, rotate: false)
             }
         } else if let img = model.current {
             RotatingImageView(image: img, rotate: model.readingPortrait)
@@ -782,6 +786,10 @@ struct ContentView: View {
         }
 
         // Navigation/function keys remain key-code based because they are not layout-dependent.
+        // In RTL, the horizontal arrow meaning is reversed: the left arrow advances and the right
+        // arrow goes back. Pan directions remain physical so zoomed pages can be explored naturally.
+        let rtl = readerSettings.readingDirection.isRightToLeft
+
         switch event.keyCode {
         case 53: // Esc: close help / fullscreen / library
             if router.showShortcuts {
@@ -802,17 +810,17 @@ struct ContentView: View {
 
         case 123: // Left
             if shift {
-                flashToast(model.prevChapter())
+                flashToast(rtl ? model.nextChapter() : model.prevChapter())
             } else {
-                panOrNavigate(dx: 1) { model.prev() }
+                panOrNavigate(dx: 1) { rtl ? model.next() : model.prev() }
             }
             return true
 
         case 124: // Right
             if shift {
-                flashToast(model.nextChapter())
+                flashToast(rtl ? model.prevChapter() : model.nextChapter())
             } else {
-                panOrNavigate(dx: -1) { model.next() }
+                panOrNavigate(dx: -1) { rtl ? model.prev() : model.next() }
             }
             return true
 
