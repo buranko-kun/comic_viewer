@@ -27,7 +27,6 @@ final class ReaderSession {
     var chapters: Set<String> { navigation.chapters }
     var chapterNames: [String: String] { navigation.chapterNames }
     private var comicKey: String?
-    private var lastPage: String?
     private var manualRotate: Bool?
     private var loadTask: Task<Void, Never>?
     private var orientationProbeTask: Task<Void, Never>?
@@ -150,11 +149,6 @@ final class ReaderSession {
     func finishOpening() {
         isOpening = false
         openingName = nil
-    }
-
-    private func resumeIndex() -> Int? {
-        guard let lastPage else { return nil }
-        return items.firstIndex { pageKey(for: $0) == lastPage }
     }
 
     // MARK: Navigation
