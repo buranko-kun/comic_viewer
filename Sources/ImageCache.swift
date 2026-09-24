@@ -6,35 +6,88 @@ import Foundation
 actor ImageCache {
     private var store: [URL: DisplayImage] = [:]
     private var order: [URL] = []          // oldest → newest
+    private var inFlight: [URL: Task<DisplayImage?, Never>] = [:]
     private let capacity = 7
+    private let maxConcurrentPrefetch = 3
 
-    /// Return a cached image, or decode + cache it. Runs off the main thread.
-    func image(for url: URL, maxPixel: Int) -> DisplayImage? {
+    /// Return a cached image, or decode + cache it.
+    ///
+    /// A detached task performs the actual ImageIO decode so independent pages can decode in
+    /// parallel without serializing on this actor. Requests for the same URL share that task.
+    func image(for url: URL, maxPixel: Int) async -> DisplayImage? {
         if let hit = store[url] {
             touch(url)
             ReaderPerformance.event("image_cache hit")
             return hit
         }
 
+        if let running = inFlight[url] {
+            ReaderPerformance.event("image_cache coalesced")
+            return await running.value
+        }
+
         ReaderPerformance.event("image_cache miss")
-        guard let img = ImageLoader.decodeDisplay(url, maxPixel: maxPixel) else {
+        let task = Task.detached(priority: .userInitiated) {
+            ImageLoader.decodeDisplay(url, maxPixel: maxPixel)
+        }
+        inFlight[url] = task
+
+        let img = await task.value
+        inFlight[url] = nil
+
+        guard let img else {
             ReaderPerformance.event("image_cache decode_failed")
             return nil
         }
+
         insert(url, img)
         return img
     }
 
-    /// Warm the cache for the given URLs (e.g. next/previous) without returning them.
-    func prefetch(_ urls: [URL], maxPixel: Int) {
+    /// Warm the cache for nearby pages with bounded parallelism.
+    ///
+    /// The previous implementation decoded every requested page serially inside the actor. The
+    /// actor now yields while each detached decode runs, allowing several independent pages to
+    /// decode concurrently without creating an unbounded burst of work.
+    func prefetch(_ urls: [URL], maxPixel: Int) async {
+        let targets = urls.filter {
+            store[$0] == nil && inFlight[$0] == nil
+        }
+
+        guard !targets.isEmpty else {
+            ReaderPerformance.event("image_cache prefetch_requested=0 decoded=0")
+            return
+        }
+
         var decoded = 0
-        for url in urls where store[url] == nil {
-            if let img = ImageLoader.decodeDisplay(url, maxPixel: maxPixel) {
-                insert(url, img)
-                decoded += 1
+        var nextIndex = 0
+
+        await withTaskGroup(of: Bool.self) { group in
+            let initialCount = min(maxConcurrentPrefetch, targets.count)
+            for index in 0..<initialCount {
+                let url = targets[index]
+                group.addTask {
+                    await self.image(for: url, maxPixel: maxPixel) != nil
+                }
+                nextIndex += 1
+            }
+
+            while let result = await group.next() {
+                if result { decoded += 1 }
+
+                guard nextIndex < targets.count else { continue }
+
+                let url = targets[nextIndex]
+                group.addTask {
+                    await self.image(for: url, maxPixel: maxPixel) != nil
+                }
+                nextIndex += 1
             }
         }
-        ReaderPerformance.event("image_cache prefetch_requested=\(urls.count) decoded=\(decoded)")
+
+        ReaderPerformance.event(
+            "image_cache prefetch_requested=\(targets.count) decoded=\(decoded)"
+        )
     }
 
     private func insert(_ url: URL, _ img: DisplayImage) {
