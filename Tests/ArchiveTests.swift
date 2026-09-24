@@ -111,39 +111,6 @@ final class ArchiveTests: XCTestCase {
                        original["002.jpg"])
     }
 
-    // MARK: - Performance baselines
-
-    func testMeasureArchiveListingPerformance() throws {
-        let src = tmp.appendingPathComponent("benchmark-list-src")
-        _ = try writeBenchmarkPages(src, count: 128)
-
-        let archive = tmp.appendingPathComponent("benchmark-list.cbz")
-        makeArchive(from: src, out: archive, type: "zip")
-
-        measure(metrics: [XCTClockMetric()]) {
-            _ = ArchiveExtractor.list(archive)
-        }
-    }
-
-    func testMeasureSelectiveExtractionPerformance() throws {
-        let src = tmp.appendingPathComponent("benchmark-extract-src")
-        _ = try writeBenchmarkPages(src, count: 128)
-
-        let archive = tmp.appendingPathComponent("benchmark-extract.cbz")
-        makeArchive(from: src, out: archive, type: "zip")
-        let entries = (1...8).map { String(format: "%03d.jpg", $0) }
-
-        measure(metrics: [XCTClockMetric()]) {
-            let dest = tmp.appendingPathComponent("measure-\(UUID().uuidString)")
-            _ = ArchiveExtractor.extractEntries(
-                archive,
-                entries,
-                into: dest
-            )
-            try? FileManager.default.removeItem(at: dest)
-        }
-    }
-
     // MARK: - ArchiveStreamer (on-demand page extraction)
 
     func testStreamerEnsureExtractsPageOnDemand() async throws {
@@ -179,18 +146,6 @@ final class ArchiveTests: XCTestCase {
             let data = Data((0..<128).map { _ in UInt8.random(in: 0...255) })
             try data.write(to: dir.appendingPathComponent(n))
             bytes[n] = data
-        }
-        return bytes
-    }
-
-    private func writeBenchmarkPages(_ dir: URL, count: Int) throws -> [String: Data] {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        var bytes: [String: Data] = [:]
-        let payload = Data(repeating: 0x41, count: 4096)
-        for n in 1...count {
-            let name = String(format: "%03d.jpg", n)
-            try payload.write(to: dir.appendingPathComponent(name))
-            bytes[name] = payload
         }
         return bytes
     }
