@@ -26,7 +26,7 @@ struct ReaderNavigation {
 
     mutating func loadState(_ state: ComicState?) {
         chapters = []
-        chapterNames = []
+        chapterNames = [:]
         lastPage = nil
 
         guard let state else { return }
