@@ -12,7 +12,7 @@ enum ArchiveTest {
         guard let dir = ArchiveExtractor.extract(archive) else {
             print("EXTRACT FAILED"); exit(2)
         }
-        let images = AppModel.scanRecursive(dir)
+        let images = FileScanner.scanRecursive(dir)
         print("extracted → \(dir.lastPathComponent)")
         print("images: \(images.count)")
         for u in images.prefix(3) { print("  \(u.lastPathComponent)") }

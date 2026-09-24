@@ -21,7 +21,7 @@ enum MetadataTest {
         print("bookmarks:    \(info.bookmarks.count)")
 
         if !info.bookmarks.isEmpty {
-            let images = AppModel.scan(dir)
+            let images = FileScanner.scan(dir)
             for b in info.bookmarks {
                 let file = images.indices.contains(b.imageIndex)
                     ? images[b.imageIndex].lastPathComponent : "<index \(b.imageIndex) out of range>"

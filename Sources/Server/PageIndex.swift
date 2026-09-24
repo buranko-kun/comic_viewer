@@ -66,7 +66,7 @@ final class PageIndex {
             ArchiveExtractor.extractAllInto(URL(fileURLWithPath: path), dir: state.dir)
             lock.lock(); state.fullyExtracted = true; lock.unlock()
         }
-        return AppModel.scanRecursive(state.dir)
+        return FileScanner.scanRecursive(state.dir)
     }
 
     // MARK: - Backwards-compatible listing
@@ -84,8 +84,8 @@ final class PageIndex {
 
     private func folderPages(_ path: String) -> [URL] {
         let dir = URL(fileURLWithPath: path)
-        let top = AppModel.scan(dir)
-        return top.isEmpty ? AppModel.scanRecursive(dir) : top
+        let top = FileScanner.scan(dir)
+        return top.isEmpty ? FileScanner.scanRecursive(dir) : top
     }
 
     /// The streaming state for an archive, building it once (list entries, allocate a temp dir).
@@ -107,7 +107,7 @@ final class PageIndex {
         } else {
             // No 7zz available — fall back to a full extract and read files off disk.
             guard let ex = ArchiveExtractor.extract(archive) else { return nil }
-            let files = AppModel.scanRecursive(ex)
+            let files = FileScanner.scanRecursive(ex)
             let state = ArchiveState(entries: files.map(\.lastPathComponent), dir: ex)
             state.fullyExtracted = true
             lock.lock(); archives[path] = state; lock.unlock()

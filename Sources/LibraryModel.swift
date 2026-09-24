@@ -358,7 +358,7 @@ final class LibraryModel {
     }
 
     private nonisolated static func makeFolderComic(_ dir: URL, images: [URL], series: String) -> Comic {
-        let sorted = AppModel.sorted(images)
+        let sorted = FileScanner.sorted(images)
         // Match chapter/resume keys by the relative path (mirrors `AppModel.pageKey`) so pages nested
         // in a subfolder resolve; keep the bare filename too for legacy states saved by filename.
         let present = Set(sorted.flatMap { [chapterKey($0, folder: dir), $0.lastPathComponent] })
@@ -419,18 +419,18 @@ final class LibraryModel {
     /// chapter thumbnail grid works for CBZ/CBR too.
     func resolveChapters(of comic: Comic) async -> [ChapterRef] {
         if !comic.isArchive {
-            return Self.buildChapters(images: AppModel.scan(comic.url), folder: comic.url,
+            return Self.buildChapters(images: FileScanner.scan(comic.url), folder: comic.url,
                                       comicKey: CentralStore.key(for: comic.url))
         }
         guard let dir = await extractedDir(for: comic.url) else { return [] }
-        return Self.buildChapters(images: AppModel.scanRecursive(dir), folder: dir,
+        return Self.buildChapters(images: FileScanner.scanRecursive(dir), folder: dir,
                                   comicKey: CentralStore.key(for: comic.url))
     }
 
     /// The chapter refs for a folder comic (synchronous; archives return [] — use `resolveChapters`).
     func chapters(of comic: Comic) -> [ChapterRef] {
         guard !comic.isArchive else { return [] }
-        return Self.buildChapters(images: AppModel.scan(comic.url), folder: comic.url,
+        return Self.buildChapters(images: FileScanner.scan(comic.url), folder: comic.url,
                                   comicKey: CentralStore.key(for: comic.url))
     }
 
