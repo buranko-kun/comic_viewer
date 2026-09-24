@@ -353,7 +353,7 @@ struct CollectionCover: View {
                 let url = URL(fileURLWithPath: p)
                 var src: URL?
                 if ArchiveExtractor.isArchive(url) { src = await ArchiveCover.make(for: url) }
-                else { src = AppModel.scan(url).first }
+                else { src = FileScanner.scan(url).first }
                 if let src { cg = await ThumbnailCache.shared.thumbnail(for: src, maxPixel: 320) }
             }
         }
