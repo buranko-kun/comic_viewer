@@ -16,10 +16,12 @@ final class ArchiveSessionManagerTests: XCTestCase {
         )
 
         await manager.beginRegistration(for: archive, token: 1)
-        XCTAssertTrue(await manager.register(session, token: 1))
+        let firstRegistered = await manager.register(session, token: 1)
+        XCTAssertTrue(firstRegistered)
 
         await manager.beginRegistration(for: archive, token: 2)
-        XCTAssertFalse(await manager.register(session, token: 1))
+        let staleRegistered = await manager.register(session, token: 1)
+        XCTAssertFalse(staleRegistered)
 
         await manager.cleanup()
     }
@@ -44,10 +46,12 @@ final class ArchiveSessionManagerTests: XCTestCase {
         )
 
         await manager.beginRegistration(for: archive, token: 1)
-        XCTAssertTrue(await manager.register(first, token: 1))
+        let firstRegistered = await manager.register(first, token: 1)
+        XCTAssertTrue(firstRegistered)
 
         await manager.beginRegistration(for: archive, token: 2)
-        XCTAssertTrue(await manager.register(second, token: 2))
+        let secondRegistered = await manager.register(second, token: 2)
+        XCTAssertTrue(secondRegistered)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: firstDir.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: secondDir.path))
