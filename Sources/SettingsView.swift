@@ -115,6 +115,18 @@ private struct ReaderTab: View {
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Reading direction", selection: $s.readingDirection) {
+                    ForEach(ReaderSettings.ReadingDirection.allCases) {
+                        Text($0.label).tag($0)
+                    }
+                }
+                .pickerStyle(.segmented).frame(maxWidth: 260)
+                Text("Right to left reverses the physical page layout and horizontal navigation. "
+                     + "Saved page positions and logical page order stay unchanged.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
             Toggle(isOn: $s.fitWideToWidth) {
                 Text("Fit pages to screen width")
                 Text("In Vertical view, pages fill the full screen width and pan vertically instead of "
