@@ -57,7 +57,9 @@ final class ReaderStateStore {
         }
     }
 
-    func save(_ state: ComicState) {
+    func save(_ input: ComicState) {
+        var state = input
+        state.lastReadAt = Date()
         guard let stateURL else { return }
 
         if state.chapters.isEmpty && state.lastPage == nil {
