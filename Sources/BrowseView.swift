@@ -178,7 +178,7 @@ struct BrowseView: View {
 
     /// Relevance for a matched comic against the already-normalized query. Scores the title with the
     /// shared `SearchRank`; a series-only match ranks just above a description/metadata-only one.
-    private static func relevance(_ c: RemoteComic, nq: String) -> Int {
+    private nonisolated static func relevance(_ c: RemoteComic, nq: String) -> Int {
         let s = SearchRank.score(c.title, normalizedQuery: nq)
         if s > 10 { return s }
         if let series = c.series, SearchRank.score(series, normalizedQuery: nq) >= 60 { return 20 }
