@@ -29,8 +29,6 @@ final class ReaderSession {
 
     private var folder: URL?
     private var comicKey: String?
-    private var stateURL: URL?
-    private var legacyStateURLs: [URL] = []
     private var lastPage: String?
     private var manualRotate: Bool?
     private var loadTask: Task<Void, Never>?
@@ -40,11 +38,8 @@ final class ReaderSession {
     private var openSeq = 0
 
     private let cache = ImageCache()
+    private let stateStore = ReaderStateStore()
     private var loadToken = 0
-    private var saveTask: Task<Void, Never>?
-
-    private static let stateFileName = ".comicviewer.json"
-    private static let legacyFileName = ".landscape-chapters.json"
 
     var counter: String {
         items.isEmpty ? "" : "\(index + 1) / \(items.count)"
@@ -71,6 +66,7 @@ final class ReaderSession {
         loadTask = nil
         orientationProbeTask?.cancel()
         orientationProbeTask = nil
+        stateStore.cancel()
 
         current = nil
         secondary = nil
@@ -118,8 +114,10 @@ final class ReaderSession {
         items = newItems
         folder = newFolder
         comicKey = newKey
-        legacyStateURLs = newLegacy
-        stateURL = newKey.map { CentralStore.stateURL(for: $0) }
+        stateStore.configure(
+            comicKey: newKey,
+            legacyStateURLs: newLegacy
+        )
 
         if let first = items.first, first.isFileURL, let info = ImageLoader.probe(first) {
             pagesLandscape = !info.isPortrait
@@ -455,25 +453,8 @@ final class ReaderSession {
         manualRotate = nil
         loadBookmarkChapters()
 
-        guard let stateURL else { return }
-
-        var data = try? Data(contentsOf: stateURL)
-        var migrated = false
-
-        if data == nil {
-            for legacy in legacyStateURLs {
-                if let d = try? Data(contentsOf: legacy) {
-                    data = d
-                    migrated = true
-                    break
-                }
-            }
-        }
-
-        guard let data,
-              let state = try? JSONDecoder().decode(ComicState.self, from: data) else {
-            return
-        }
+        let result = stateStore.load()
+        guard let state = result.state else { return }
 
         let present = Set(items.map { pageKey(for: $0) })
         chapters = Set(state.chapters.compactMap { key in
@@ -494,34 +475,27 @@ final class ReaderSession {
             lastPage = present.contains(saved)
                 ? saved
                 : legacyPageKey(for: saved, preferredIndex: state.lastIndex)
-        } else {
-            lastPage = nil
         }
 
-        if migrated {
+        if result.migratedFromLegacy {
             saveState()
-            for legacy in legacyStateURLs {
-                try? FileManager.default.removeItem(at: legacy)
-            }
+            stateStore.removeLegacyStateFiles()
         }
     }
 
     private func scheduleSaveState() {
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(0.6))
-            guard !Task.isCancelled else { return }
-            self?.saveState()
-        }
+        stateStore.scheduleSave(makeState())
     }
 
     private func saveState() {
-        guard let stateURL else { return }
+        stateStore.save(makeState())
+    }
 
+    private func makeState() -> ComicState {
         let ordered = orderedChapterIndices().map { pageKey(for: items[$0]) }
         let names = chapterNames.filter { chapters.contains($0.key) }
 
-        let state = ComicState(
+        return ComicState(
             version: 3,
             chapters: ordered,
             chapterNames: names,
@@ -531,15 +505,6 @@ final class ReaderSession {
             manualRotate: nil,
             path: comicKey
         )
-
-        if state.chapters.isEmpty && state.lastPage == nil {
-            try? FileManager.default.removeItem(at: stateURL)
-            return
-        }
-
-        if let data = try? JSONEncoder().encode(state) {
-            try? data.write(to: stateURL, options: .atomic)
-        }
     }
 
     // MARK: Helpers
@@ -583,7 +548,6 @@ final class ReaderSession {
         loadTask = nil
         orientationProbeTask?.cancel()
         orientationProbeTask = nil
-        saveTask?.cancel()
-        saveTask = nil
+        stateStore.cancel()
     }
 }
