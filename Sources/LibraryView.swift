@@ -136,6 +136,14 @@ struct LibraryView: View {
                     }
                 }
             }
+            if !recent.isEmpty {
+                shelf(title: "Recently Read") {
+                    ForEach(recent) { comic in
+                        ContinueCard(comic: comic, cache: coverCache) { router.openFromShelf(comic) }
+                            .contextMenu { comicMenu(comic) }
+                    }
+                }
+            }
             ForEach(cols) { col in
                 shelf(title: col.name) {
                     ForEach(col.items) { item in
