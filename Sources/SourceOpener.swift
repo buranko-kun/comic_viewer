@@ -18,7 +18,7 @@ final class SourceOpener {
         self.archiveOpener = ArchiveOpener(reader: reader)
     }
 
-// MARK: Opening
+    // MARK: Opening
 
 /// `startIndex` opens directly at that page (used by the chapter grid), overriding resume —
 /// it survives an archive's asynchronous extraction, unlike a follow-up `goTo`.
@@ -27,7 +27,7 @@ func open(urls: [URL], startIndex: Int? = nil) {
     openingTask = nil
     let urls = urls.map(\.standardizedFileURL)
     guard let first = urls.first else { return }
-    let openGeneration = reader.prepareForOpen(name: first.lastPathComponent, remote: false)
+    reader.prepareForOpen(name: first.lastPathComponent, remote: false)
 
     // Open a web comic (.webcomic.json) → stream its remote page URLs; nothing on disk but the
     // descriptor. No extraction, no local files.
@@ -97,7 +97,7 @@ private func openFolder(_ dir: URL, initialImage: URL?, startIndex: Int? = nil) 
 }
 
 
-// MARK: Helpers
+    // MARK: Helpers
 
 private func isDirectory(_ url: URL) -> Bool {
     (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
