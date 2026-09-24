@@ -58,13 +58,24 @@ actor ArchiveStreamer {
     ///
     /// Session eviction calls this before deleting the backing directory so no detached task can
     /// continue writing into a temp directory that no longer belongs to a live session.
-    func cancel() {
+    func cancel() async {
+        let background = fullTask
+        let requests = Array(inFlight.values)
+
         fullTask?.cancel()
         fullTask = nil
-
-        for task in inFlight.values {
+        for task in requests {
             task.cancel()
         }
         inFlight.removeAll()
+
+        // Detached archive extraction is synchronous and may not observe cancellation while it is
+        // inside 7zz. Wait for every task so the backing directory is safe to delete afterwards.
+        if let background {
+            await background.value
+        }
+        for task in requests {
+            _ = await task.value
+        }
     }
 }
