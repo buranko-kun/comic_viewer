@@ -319,7 +319,7 @@ struct ReaderNavigation {
             ? (idxs.first { $0 > index } ?? idxs.first!)
             : (idxs.last { $0 < index } ?? idxs.last!)
 
-        setIndex(target)
+        _ = setIndex(target)
 
         let ordinal = (idxs.firstIndex(of: target) ?? 0) + 1
         return "Chapter \(ordinal) of \(idxs.count)"

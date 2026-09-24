@@ -18,39 +18,88 @@ actor ArchiveSessionManager {
     private var sessions: [String: Session] = [:]
     private var order: [String] = []
     private var currentKey: String?
+    private var registrationTokens: [String: Int] = [:]
     private let maxCachedSessions = 4
 
     /// Return an existing session and mark it as recently used.
-    func session(for archive: URL) -> Session? {
+    func session(for archive: URL) async -> Session? {
         let key = CentralStore.key(for: archive)
-        guard let session = sessions[key],
-              FileManager.default.fileExists(atPath: session.dir.path) else {
+        guard let session = sessions[key] else { return nil }
+        guard FileManager.default.fileExists(atPath: session.dir.path) else {
             sessions.removeValue(forKey: key)
             order.removeAll { $0 == key }
+            await session.streamer?.cancel()
             return nil
         }
         touch(key)
         return session
     }
 
-    /// Register a newly prepared session.
-    func register(_ session: Session, makeCurrent: Bool = false) {
+    /// Begin an archive open identified by the reader's generation.
+    ///
+    /// A newer open for the same archive replaces the token, so stale work cannot register a
+    /// completed extraction over a newer session.
+    func beginRegistration(for archive: URL, token: Int) {
+        registrationTokens[CentralStore.key(for: archive)] = token
+    }
+
+    /// Register a newly prepared session. When a token is supplied, registration succeeds only
+    /// if that token is still the newest open for the archive.
+    @discardableResult
+    func register(
+        _ session: Session,
+        token: Int? = nil,
+        makeCurrent: Bool = false
+    ) async -> Bool {
         let key = CentralStore.key(for: session.archive)
+        if let token, registrationTokens[key] != token {
+            return false
+        }
+        let previous = sessions[key]
         sessions[key] = session
         touch(key)
         if makeCurrent {
             currentKey = key
         }
-        evictIfNeeded()
+
+        if let previous, previous.dir != session.dir {
+            await previous.streamer?.cancel()
+            try? FileManager.default.removeItem(at: previous.dir)
+        }
+
+        await evictIfNeeded()
+        return true
+    }
+
+    /// Remove a cached session and its extracted directory.
+    ///
+    /// The streamer's background work is cancelled before the directory is removed so a stale
+    /// open cannot continue writing into an evicted temp directory.
+    func remove(_ archive: URL, token: Int? = nil) async {
+        let key = CentralStore.key(for: archive)
+        if let token, registrationTokens[key] != token {
+            return
+        }
+        registrationTokens.removeValue(forKey: key)
+        guard let session = sessions.removeValue(forKey: key) else {
+            order.removeAll { $0 == key }
+            if currentKey == key { currentKey = nil }
+            return
+        }
+
+        order.removeAll { $0 == key }
+        if currentKey == key { currentKey = nil }
+        await session.streamer?.cancel()
+        try? FileManager.default.removeItem(at: session.dir)
     }
 
     /// Mark the archive currently being read. The current session is never evicted.
-    func setCurrent(_ archive: URL?) {
+    func setCurrent(_ archive: URL?) async {
         currentKey = archive.map(CentralStore.key(for:))
         if let currentKey, sessions[currentKey] != nil {
             touch(currentKey)
         }
-        evictIfNeeded()
+        await evictIfNeeded()
     }
 
     /// Fully extract an archive if no session exists yet.
@@ -58,7 +107,7 @@ actor ArchiveSessionManager {
     /// If a streamed session already exists, wait for its background fill and reuse its directory
     /// rather than extracting the same archive a second time.
     func extractFully(for archive: URL) async -> Session? {
-        if let existing = session(for: archive) {
+        if let existing = await session(for: archive) {
             if let streamer = existing.streamer {
                 await streamer.finishBackgroundFill()
                 let items = Self.scanImages(in: existing.dir)
@@ -95,18 +144,23 @@ actor ArchiveSessionManager {
         }
 
         let session = Session(archive: archive, dir: dir, items: items, streamer: nil)
-        register(session)
+        await register(session)
         return session
     }
 
     /// Remove every cached extraction directory.
-    func cleanup() {
-        let dirs = sessions.values.map(\.dir)
+    ///
+    /// Any active streamers are cancelled before their directories are removed.
+    func cleanup() async {
+        let cached = Array(sessions.values)
         sessions.removeAll()
         order.removeAll()
         currentKey = nil
-        for dir in dirs {
-            try? FileManager.default.removeItem(at: dir)
+        registrationTokens.removeAll()
+
+        for session in cached {
+            await session.streamer?.cancel()
+            try? FileManager.default.removeItem(at: session.dir)
         }
     }
 
@@ -115,11 +169,12 @@ actor ArchiveSessionManager {
         order.append(key)
     }
 
-    private func evictIfNeeded() {
+    private func evictIfNeeded() async {
         while order.count > maxCachedSessions {
             guard let victim = order.first(where: { $0 != currentKey }) else { return }
             order.removeAll { $0 == victim }
             if let session = sessions.removeValue(forKey: victim) {
+                await session.streamer?.cancel()
                 try? FileManager.default.removeItem(at: session.dir)
             }
         }

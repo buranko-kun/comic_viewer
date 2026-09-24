@@ -15,21 +15,43 @@ final class ArchiveOpener {
     }
 
     func open(_ archive: URL, startIndex: Int? = nil) {
-        openingTask?.cancel()
+        cancel()
+
+        let generation = reader.openGeneration
         openingTask = Task { [weak self] in
             guard let self else { return }
-            let generation = self.reader.openGeneration
-            guard self.reader.openGeneration == generation else { return }
+            guard !Task.isCancelled,
+                  self.reader.openGeneration == generation
+            else { return }
 
             if let cached = await ArchiveSessionManager.shared.session(for: archive) {
-                guard !Task.isCancelled, self.reader.openGeneration == generation else { return }
+                guard !Task.isCancelled,
+                      self.reader.openGeneration == generation
+                else { return }
+
                 await ArchiveSessionManager.shared.setCurrent(archive)
-                guard !Task.isCancelled, self.reader.openGeneration == generation else { return }
-                self.reopen(archive, cached: cached, startIndex: startIndex)
-            } else {
-                guard !Task.isCancelled, self.reader.openGeneration == generation else { return }
-                self.openUncached(archive, startIndex: startIndex)
+
+                guard !Task.isCancelled,
+                      self.reader.openGeneration == generation
+                else { return }
+
+                self.reopen(
+                    archive,
+                    cached: cached,
+                    startIndex: startIndex
+                )
+                return
             }
+
+            await ArchiveSessionManager.shared.beginRegistration(
+                for: archive,
+                token: generation
+            )
+            await self.openUncached(
+                archive,
+                startIndex: startIndex,
+                generation: generation
+            )
         }
     }
 
@@ -48,6 +70,7 @@ final class ArchiveOpener {
         let base = archive.deletingPathExtension().lastPathComponent
         let legacy = archive.deletingLastPathComponent()
             .appendingPathComponent(base + ".comicviewer.json")
+
         reader.beginComic(
             items: cached.items,
             folder: cached.dir,
@@ -58,24 +81,28 @@ final class ArchiveOpener {
         )
     }
 
-    private func openUncached(_ archive: URL, startIndex: Int?) {
-        let generation = reader.openGeneration
-        openingTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
+    private func openUncached(
+        _ archive: URL,
+        startIndex: Int?,
+        generation: Int
+    ) async {
+        let plan = await Task.detached(
+            priority: .userInitiated
+        ) {
+            Self.planStreamedArchive(
+                archive,
+                startIndex: startIndex
+            )
+        }.value
 
-            guard let plan = Self.planStreamedArchive(archive, startIndex: startIndex) else {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    self.openArchiveFully(archive, startIndex: startIndex)
-                }
-                return
-            }
-
-            guard !Task.isCancelled else {
+        guard !Task.isCancelled else {
+            if let plan {
                 try? FileManager.default.removeItem(at: plan.dir)
-                return
             }
+            return
+        }
 
+        if let plan {
             let items = plan.pages.map(\.url)
             let streamer = ArchiveStreamer(
                 archive: archive,
@@ -90,25 +117,136 @@ final class ArchiveOpener {
             )
 
             await streamer.startBackgroundFill()
-            await ArchiveSessionManager.shared.register(session, makeCurrent: true)
-            guard !Task.isCancelled else { return }
 
-            await MainActor.run {
-                guard self.reader.openGeneration == generation else { return }
-                self.reader.setStreamer(streamer)
-                let base = archive.deletingPathExtension().lastPathComponent
-                let legacy = archive.deletingLastPathComponent()
-                    .appendingPathComponent(base + ".comicviewer.json")
-                self.reader.beginComic(
-                    items: items,
-                    folder: plan.dir,
-                    comicKey: CentralStore.key(for: archive),
-                    legacyStateURLs: [legacy],
-                    initialImage: nil,
-                    start: startIndex
-                )
+            guard !Task.isCancelled else {
+                await streamer.cancel()
+                try? FileManager.default.removeItem(at: plan.dir)
+                return
             }
+
+            let registered = await ArchiveSessionManager.shared.register(
+                session,
+                token: generation,
+                makeCurrent: true
+            )
+
+            guard registered else {
+                await streamer.cancel()
+                try? FileManager.default.removeItem(at: plan.dir)
+                return
+            }
+
+            guard !Task.isCancelled,
+                  reader.openGeneration == generation
+            else {
+                await ArchiveSessionManager.shared.remove(
+                    archive,
+                    token: generation
+                )
+                return
+            }
+
+            reader.setStreamer(streamer)
+            let base = archive.deletingPathExtension().lastPathComponent
+            let legacy = archive.deletingLastPathComponent()
+                .appendingPathComponent(base + ".comicviewer.json")
+
+            reader.beginComic(
+                items: items,
+                folder: plan.dir,
+                comicKey: CentralStore.key(for: archive),
+                legacyStateURLs: [legacy],
+                initialImage: nil,
+                start: startIndex
+            )
+            return
         }
+
+        await openArchiveFully(
+            archive,
+            startIndex: startIndex,
+            generation: generation
+        )
+    }
+
+    private func openArchiveFully(
+        _ archive: URL,
+        startIndex: Int?,
+        generation: Int
+    ) async {
+        let dir = await Task.detached(
+            priority: .userInitiated
+        ) {
+            ArchiveExtractor.extract(archive)
+        }.value
+
+        guard !Task.isCancelled else {
+            if let dir {
+                try? FileManager.default.removeItem(at: dir)
+            }
+            return
+        }
+
+        guard let dir else {
+            guard reader.openGeneration == generation else { return }
+            reader.setFailure(
+                name: archive.lastPathComponent,
+                url: archive
+            )
+            return
+        }
+
+        let images = FileScanner.scanRecursive(dir)
+        guard !images.isEmpty else {
+            try? FileManager.default.removeItem(at: dir)
+            guard reader.openGeneration == generation else { return }
+            reader.setFailure(
+                name: archive.lastPathComponent,
+                url: archive
+            )
+            return
+        }
+
+        let base = archive.deletingPathExtension().lastPathComponent
+        let legacy = archive.deletingLastPathComponent()
+            .appendingPathComponent(base + ".comicviewer.json")
+        let session = ArchiveSessionManager.Session(
+            archive: archive,
+            dir: dir,
+            items: images,
+            streamer: nil
+        )
+
+        let registered = await ArchiveSessionManager.shared.register(
+            session,
+            token: generation,
+            makeCurrent: true
+        )
+
+        guard registered else {
+            try? FileManager.default.removeItem(at: dir)
+            return
+        }
+
+        guard !Task.isCancelled,
+              reader.openGeneration == generation
+        else {
+            await ArchiveSessionManager.shared.remove(
+                archive,
+                token: generation
+            )
+            return
+        }
+
+        reader.setStreamer(nil)
+        reader.beginComic(
+            items: images,
+            folder: dir,
+            comicKey: CentralStore.key(for: archive),
+            legacyStateURLs: [legacy],
+            initialImage: nil,
+            start: startIndex
+        )
     }
 
     /// Off-main planning for a streamed open: list the archive, choose priority pages, and
@@ -183,7 +321,11 @@ final class ArchiveOpener {
             return nil
         }
 
-        ArchiveExtractor.extractEntries(archive, priority, into: dir)
+        ArchiveExtractor.extractEntries(
+            archive,
+            priority,
+            into: dir
+        )
 
         guard !Task.isCancelled else {
             try? FileManager.default.removeItem(at: dir)
@@ -194,7 +336,12 @@ final class ArchiveOpener {
             let bookmarkEntries = info.bookmarks
                 .filter { imageEntries.indices.contains($0.imageIndex) }
                 .map { imageEntries[$0.imageIndex] }
-            ArchiveExtractor.extractEntries(archive, bookmarkEntries, into: dir)
+
+            ArchiveExtractor.extractEntries(
+                archive,
+                bookmarkEntries,
+                into: dir
+            )
         }
 
         guard !Task.isCancelled else {
@@ -209,76 +356,5 @@ final class ArchiveOpener {
         }
 
         return (dir, pages)
-    }
-
-    /// Full-extraction fallback for archives that cannot be safely streamed page-by-page.
-    private func openArchiveFully(_ archive: URL, startIndex: Int?) {
-        let generation = reader.openGeneration
-        openingTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            let dir = ArchiveExtractor.extract(archive)
-
-            guard !Task.isCancelled else {
-                if let dir {
-                    try? FileManager.default.removeItem(at: dir)
-                }
-                return
-            }
-
-            await MainActor.run {
-                guard !Task.isCancelled else {
-                    if let dir {
-                        try? FileManager.default.removeItem(at: dir)
-                    }
-                    return
-                }
-
-                guard let dir else {
-                    self.reader.setFailure(
-                        name: archive.lastPathComponent,
-                        url: archive
-                    )
-                    return
-                }
-
-                let images = FileScanner.scanRecursive(dir)
-                guard !images.isEmpty else {
-                    try? FileManager.default.removeItem(at: dir)
-                    self.reader.setFailure(
-                        name: archive.lastPathComponent,
-                        url: archive
-                    )
-                    return
-                }
-
-                let base = archive.deletingPathExtension().lastPathComponent
-                let legacy = archive.deletingLastPathComponent()
-                    .appendingPathComponent(base + ".comicviewer.json")
-                let session = ArchiveSessionManager.Session(
-                    archive: archive,
-                    dir: dir,
-                    items: images,
-                    streamer: nil
-                )
-
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    await ArchiveSessionManager.shared.register(
-                        session,
-                        makeCurrent: true
-                    )
-                    guard self.reader.openGeneration == generation else { return }
-                    self.reader.setStreamer(nil)
-                    self.reader.beginComic(
-                        items: images,
-                        folder: dir,
-                        comicKey: CentralStore.key(for: archive),
-                        legacyStateURLs: [legacy],
-                        initialImage: nil,
-                        start: startIndex
-                    )
-                }
-            }
-        }
     }
 }
