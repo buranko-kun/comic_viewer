@@ -419,7 +419,7 @@ final class LibraryModel {
     /// chapter thumbnail grid works for CBZ/CBR too.
     func resolveChapters(of comic: Comic) async -> [ChapterRef] {
         if !comic.isArchive {
-            return Self.buildChapters(images: AppModel.scan(comic.url), folder: comic.url,
+            return Self.buildChapters(images: FileScanner.scan(comic.url), folder: comic.url,
                                       comicKey: CentralStore.key(for: comic.url))
         }
         guard let dir = await extractedDir(for: comic.url) else { return [] }
@@ -430,7 +430,7 @@ final class LibraryModel {
     /// The chapter refs for a folder comic (synchronous; archives return [] — use `resolveChapters`).
     func chapters(of comic: Comic) -> [ChapterRef] {
         guard !comic.isArchive else { return [] }
-        return Self.buildChapters(images: AppModel.scan(comic.url), folder: comic.url,
+        return Self.buildChapters(images: FileScanner.scan(comic.url), folder: comic.url,
                                   comicKey: CentralStore.key(for: comic.url))
     }
 
