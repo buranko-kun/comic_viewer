@@ -20,6 +20,7 @@ struct LibraryView: View {
     // Chapter rename dialog (the chapter being renamed + working text).
     @State private var renamingChapter: ChapterRef?
     @State private var chapterRenameText = ""
+    @State private var historyRefresh = 0
 
     private var isPortrait: Bool { router.libraryPortrait }
 
