@@ -600,18 +600,22 @@ struct ContentView: View {
     @ViewBuilder
     private var readingProgressBar: some View {
         if model.current != nil, ReaderSettings.shared.showProgressBar {
-            PageScrubber(
-                urls: model.items,
-                currentIndex: model.index,
-                spreadEnabled: model.spreadEnabled,
-                readingDirection: readerSettings.readingDirection,
-                cache: thumbCache,
-                onSelect: { index in
-                    model.goTo(index: index)
-                }
-            )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+
+                PageScrubber(
+                    urls: model.items,
+                    currentIndex: model.index,
+                    spreadEnabled: model.spreadEnabled,
+                    readingDirection: readerSettings.readingDirection,
+                    cache: thumbCache,
+                    onSelect: { index in
+                        model.goTo(index: index)
+                    }
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+            }
         }
     }
 
