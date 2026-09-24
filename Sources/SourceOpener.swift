@@ -67,7 +67,7 @@ func open(urls: [URL], startIndex: Int? = nil) {
         openFolder(supported[0].deletingLastPathComponent(), initialImage: supported[0])
     } else {
         // An explicit multi-file selection: use exactly those, no folder scan / resume.
-        beginComic(items: Self.sorted(supported),
+        beginComic(items: FileScanner.sorted(supported),
                    folder: supported.first?.deletingLastPathComponent(),
                    comicKey: nil, legacyStateURLs: [], start: 0)
     }
@@ -295,7 +295,7 @@ private func openArchiveFully(_ archive: URL, startIndex: Int? = nil) {
                 return
             }
 
-            let images = Self.scanRecursive(dir)
+            let images = FileScanner.scanRecursive(dir)
             guard !images.isEmpty else {
                 try? FileManager.default.removeItem(at: dir)
                 self.reader.setFailure(name: archive.lastPathComponent, url: archive)
@@ -349,8 +349,8 @@ private func beginComic(
 private func openFolder(_ dir: URL, initialImage: URL?, startIndex: Int? = nil) {
     // Direct images; if a container folder has none, fall back to a recursive scan
     // (e.g. opening a folder whose pages live in a subfolder).
-    var scanned = Self.scan(dir)
-    if scanned.isEmpty { scanned = Self.scanRecursive(dir) }
+    var scanned = FileScanner.scan(dir)
+    if scanned.isEmpty { scanned = FileScanner.scanRecursive(dir) }
     guard !scanned.isEmpty else { reader.finishOpening(); return }
     let legacy = [dir.appendingPathComponent(Self.stateFileName),
                   dir.appendingPathComponent(Self.legacyFileName)]
