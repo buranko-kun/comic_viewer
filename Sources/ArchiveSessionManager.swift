@@ -21,12 +21,13 @@ actor ArchiveSessionManager {
     private let maxCachedSessions = 4
 
     /// Return an existing session and mark it as recently used.
-    func session(for archive: URL) -> Session? {
+    func session(for archive: URL) async -> Session? {
         let key = CentralStore.key(for: archive)
-        guard let session = sessions[key],
-              FileManager.default.fileExists(atPath: session.dir.path) else {
+        guard let session = sessions[key] else { return nil }
+        guard FileManager.default.fileExists(atPath: session.dir.path) else {
             sessions.removeValue(forKey: key)
             order.removeAll { $0 == key }
+            await session.streamer?.cancel()
             return nil
         }
         touch(key)
@@ -34,23 +35,41 @@ actor ArchiveSessionManager {
     }
 
     /// Register a newly prepared session.
-    func register(_ session: Session, makeCurrent: Bool = false) {
+    func register(_ session: Session, makeCurrent: Bool = false) async {
         let key = CentralStore.key(for: session.archive)
         sessions[key] = session
         touch(key)
         if makeCurrent {
             currentKey = key
         }
-        evictIfNeeded()
+        await evictIfNeeded()
+    }
+
+    /// Remove a cached session and its extracted directory.
+    ///
+    /// The streamer's background work is cancelled before the directory is removed so a stale
+    /// open cannot continue writing into an evicted temp directory.
+    func remove(_ archive: URL) async {
+        let key = CentralStore.key(for: archive)
+        guard let session = sessions.removeValue(forKey: key) else {
+            order.removeAll { $0 == key }
+            if currentKey == key { currentKey = nil }
+            return
+        }
+
+        order.removeAll { $0 == key }
+        if currentKey == key { currentKey = nil }
+        await session.streamer?.cancel()
+        try? FileManager.default.removeItem(at: session.dir)
     }
 
     /// Mark the archive currently being read. The current session is never evicted.
-    func setCurrent(_ archive: URL?) {
+    func setCurrent(_ archive: URL?) async {
         currentKey = archive.map(CentralStore.key(for:))
         if let currentKey, sessions[currentKey] != nil {
             touch(currentKey)
         }
-        evictIfNeeded()
+        await evictIfNeeded()
     }
 
     /// Fully extract an archive if no session exists yet.
@@ -95,7 +114,7 @@ actor ArchiveSessionManager {
         }
 
         let session = Session(archive: archive, dir: dir, items: items, streamer: nil)
-        register(session)
+        await register(session)
         return session
     }
 
@@ -115,11 +134,12 @@ actor ArchiveSessionManager {
         order.append(key)
     }
 
-    private func evictIfNeeded() {
+    private func evictIfNeeded() async {
         while order.count > maxCachedSessions {
             guard let victim = order.first(where: { $0 != currentKey }) else { return }
             order.removeAll { $0 == victim }
             if let session = sessions.removeValue(forKey: victim) {
+                await session.streamer?.cancel()
                 try? FileManager.default.removeItem(at: session.dir)
             }
         }
