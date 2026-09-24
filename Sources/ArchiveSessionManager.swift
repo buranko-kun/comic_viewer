@@ -18,6 +18,7 @@ actor ArchiveSessionManager {
     private var sessions: [String: Session] = [:]
     private var order: [String] = []
     private var currentKey: String?
+    private var registrationTokens: [String: Int] = [:]
     private let maxCachedSessions = 4
 
     /// Return an existing session and mark it as recently used.
@@ -34,23 +35,45 @@ actor ArchiveSessionManager {
         return session
     }
 
-    /// Register a newly prepared session.
-    func register(_ session: Session, makeCurrent: Bool = false) async {
+    /// Begin an archive open identified by the reader's generation.
+    ///
+    /// A newer open for the same archive replaces the token, so stale work cannot register a
+    /// completed extraction over a newer session.
+    func beginRegistration(for archive: URL, token: Int) {
+        registrationTokens[CentralStore.key(for: archive)] = token
+    }
+
+    /// Register a newly prepared session. When a token is supplied, registration succeeds only
+    /// if that token is still the newest open for the archive.
+    @discardableResult
+    func register(
+        _ session: Session,
+        token: Int? = nil,
+        makeCurrent: Bool = false
+    ) async -> Bool {
         let key = CentralStore.key(for: session.archive)
+        if let token, registrationTokens[key] != token {
+            return false
+        }
         sessions[key] = session
         touch(key)
         if makeCurrent {
             currentKey = key
         }
         await evictIfNeeded()
+        return true
     }
 
     /// Remove a cached session and its extracted directory.
     ///
     /// The streamer's background work is cancelled before the directory is removed so a stale
     /// open cannot continue writing into an evicted temp directory.
-    func remove(_ archive: URL) async {
+    func remove(_ archive: URL, token: Int? = nil) async {
         let key = CentralStore.key(for: archive)
+        if let token, registrationTokens[key] != token {
+            return
+        }
+        registrationTokens.removeValue(forKey: key)
         guard let session = sessions.removeValue(forKey: key) else {
             order.removeAll { $0 == key }
             if currentKey == key { currentKey = nil }
