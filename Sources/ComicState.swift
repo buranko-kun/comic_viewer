@@ -26,6 +26,7 @@ struct ComicState: Codable {
     /// file human-readable and lets tools map a state file back to its comic. Optional so
     /// older sidecars without the key still decode.
     var path: String?
+    var lastReadAt: Date?
 }
 
 extension ComicState {
