@@ -69,6 +69,12 @@ enum ReaderPageSource: Sendable {
         }
     }
 
+    func cancelPrefetch() async {
+        if isRemote {
+            await RemotePageCache.shared.cancelPrefetch()
+        }
+    }
+
     private func loadLocalPage(
         _ url: URL,
         streamer: ArchiveStreamer?,

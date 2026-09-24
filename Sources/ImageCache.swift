@@ -165,6 +165,10 @@ actor RemotePageCache {
     private var store: [URL: DisplayImage] = [:]
     private var order: [URL] = []
     private var inFlight: [URL: Task<DisplayImage?, Never>] = [:]
+    private lazy var prefetchScheduler = RemotePrefetchScheduler { [weak self] url, maxPixel in
+        guard let self else { return }
+        _ = await self.image(for: url, maxPixel: maxPixel)
+    }
     private let capacity = 8
 
     /// How many times to (re)try fetching a page before giving up. Streamed pages routinely fail
@@ -211,11 +215,21 @@ actor RemotePageCache {
         return img
     }
 
-    func prefetch(_ urls: [URL], maxPixel: Int) {
-        for url in urls where store[url] == nil && inFlight[url] == nil {
-            Task { _ = await image(for: url, maxPixel: maxPixel) }
+    func prefetch(_ urls: [URL], maxPixel: Int) async {
+        let targets = urls.filter {
+            store[$0] == nil && inFlight[$0] == nil
         }
+        await prefetchScheduler.setTarget(targets, maxPixel: maxPixel)
+        ReaderPerformance.event(
+            "remote_page_cache prefetch_target=\(targets.count)"
+        )
     }
+
+    func cancelPrefetch() async {
+        await prefetchScheduler.cancel()
+        ReaderPerformance.event("remote_page_cache prefetch_cancelled")
+    }
+
 
     private func insert(_ url: URL, _ img: DisplayImage) {
         store[url] = img; touch(url)
