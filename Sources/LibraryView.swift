@@ -126,7 +126,7 @@ struct LibraryView: View {
 
     /// Home shelves: "Continue Reading", then one horizontal shelf per collection, then a
     /// "Library" heading above the folder grid. All cards match the library's cover size.
-    private func homeHeader(_ recents: [Comic], _ cols: [Collection]) -> some View {
+    private func homeHeader(_ recents: [Comic], _ recent: [Comic], _ cols: [Collection]) -> some View {
         VStack(alignment: .leading, spacing: 26) {
             if !recents.isEmpty {
                 shelf(title: "Continue Reading") {
