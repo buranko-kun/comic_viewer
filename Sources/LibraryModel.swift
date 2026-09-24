@@ -423,7 +423,7 @@ final class LibraryModel {
                                       comicKey: CentralStore.key(for: comic.url))
         }
         guard let dir = await extractedDir(for: comic.url) else { return [] }
-        return Self.buildChapters(images: AppModel.scanRecursive(dir), folder: dir,
+        return Self.buildChapters(images: FileScanner.scanRecursive(dir), folder: dir,
                                   comicKey: CentralStore.key(for: comic.url))
     }
 
