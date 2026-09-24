@@ -19,6 +19,22 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertEqual(state.lastPage, pages[3].absoluteString)
     }
 
+    func testConfigurePreservesSpreadModeAcrossComicOpens() {
+        var navigation = ReaderNavigation()
+        let first = makePages(count: 4)
+        let second = makePages(count: 3).map { $0.deletingLastPathComponent().appendingPathComponent("other-" + $0.lastPathComponent) }
+
+        navigation.configure(items: first, folder: nil)
+        XCTAssertEqual(navigation.toggleSpread(), "Two-page spread")
+        XCTAssertTrue(navigation.spreadEnabled)
+
+        navigation.configure(items: second, folder: nil)
+
+        XCTAssertTrue(navigation.spreadEnabled)
+        XCTAssertEqual(navigation.items, second)
+        XCTAssertEqual(navigation.index, 0)
+    }
+
     func testChapterOrderingUsesPageOrderAndCustomNames() {
         var navigation = ReaderNavigation()
         let pages = makePages(count: 5)
