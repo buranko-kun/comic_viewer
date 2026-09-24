@@ -31,7 +31,7 @@ struct ComicState: Codable {
 
 extension ComicState {
     private enum CodingKeys: String, CodingKey {
-        case version, chapters, chapterNames, lastPage, lastIndex, pageCount, manualRotate, path
+        case version, chapters, chapterNames, lastPage, lastIndex, pageCount, manualRotate, path, lastReadAt
     }
 
     /// **Tolerant decoding**: every field falls back to its default when the key is absent. Swift's
@@ -50,5 +50,6 @@ extension ComicState {
         pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount)
         manualRotate = try c.decodeIfPresent(Bool.self, forKey: .manualRotate)
         path = try c.decodeIfPresent(String.self, forKey: .path)
+        lastReadAt = try c.decodeIfPresent(Date.self, forKey: .lastReadAt)
     }
 }
