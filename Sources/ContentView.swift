@@ -603,19 +603,19 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
 
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(.white.opacity(0.18))
-
-                        Rectangle()
-                            .fill(Color.red)
-                            .frame(width: geometry.size.width * CGFloat(model.readingProgress))
+                PageScrubber(
+                    urls: model.items,
+                    currentIndex: model.index,
+                    spreadEnabled: model.spreadEnabled,
+                    readingDirection: readerSettings.readingDirection,
+                    cache: thumbCache,
+                    onSelect: { index in
+                        model.goTo(index: index)
                     }
-                }
-                .frame(height: 3)
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
             }
-            .allowsHitTesting(false)
         }
     }
 
