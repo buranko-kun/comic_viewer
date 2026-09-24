@@ -8,7 +8,7 @@ struct PageScrubber: View {
     let urls: [URL]
     let currentIndex: Int
     let spreadEnabled: Bool
-    let readingDirection: ReadingDirection
+    let readingDirection: ReaderSettings.ReadingDirection
     let cache: ThumbnailCache
     let onSelect: (Int) -> Void
 
@@ -171,7 +171,7 @@ struct PageScrubber: View {
         return clamped - (clamped % 2)
     }
 
-    static func targetIndex(x: CGFloat, width: CGFloat, count: Int, direction: ReadingDirection) -> Int {
+    static func targetIndex(x: CGFloat, width: CGFloat, count: Int, direction: ReaderSettings.ReadingDirection) -> Int {
         guard count > 1, width > 0 else { return 0 }
         let visual = min(max(x / width, 0), 1)
         let logical = direction.isRightToLeft ? 1 - visual : visual
