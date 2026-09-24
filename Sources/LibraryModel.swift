@@ -199,6 +199,21 @@ final class LibraryModel {
             .map(\.0)
     }
 
+    /// Comics with saved reading activity, newest first. Unlike Continue Reading, finished
+    /// comics remain here so the shelf acts as a lightweight reading history.
+    var recentlyRead: [Comic] {
+        comics
+            .compactMap { comic -> (Comic, Date)? in
+                guard comic.progress != nil,
+                      let date = CentralStore.lastReadDate(forKey: CentralStore.key(for: comic.url))
+                else { return nil }
+                return (comic, date)
+            }
+            .sorted { $0.1 > $1.1 }
+            .prefix(20)
+            .map(\.0)
+    }
+
     // MARK: Scanning
 
     func scan() {
