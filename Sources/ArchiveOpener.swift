@@ -86,6 +86,7 @@ final class ArchiveOpener {
         startIndex: Int?,
         generation: Int
     ) async {
+        let startedAt = ReaderPerformance.now()
         let plan = await Task.detached(
             priority: .userInitiated
         ) {
@@ -94,6 +95,10 @@ final class ArchiveOpener {
                 startIndex: startIndex
             )
         }.value
+        ReaderPerformance.metric(
+            "archive_stream_plan",
+            milliseconds: ReaderPerformance.milliseconds(since: startedAt)
+        )
 
         guard !Task.isCancelled else {
             if let plan {
@@ -103,6 +108,7 @@ final class ArchiveOpener {
         }
 
         if let plan {
+            ReaderPerformance.event("archive_open mode=streamed pages=\(plan.pages.count)")
             let items = plan.pages.map(\.url)
             let streamer = ArchiveStreamer(
                 archive: archive,
@@ -162,6 +168,7 @@ final class ArchiveOpener {
             return
         }
 
+        ReaderPerformance.event("archive_open mode=full_extract")
         await openArchiveFully(
             archive,
             startIndex: startIndex,
@@ -174,11 +181,16 @@ final class ArchiveOpener {
         startIndex: Int?,
         generation: Int
     ) async {
+        let startedAt = ReaderPerformance.now()
         let dir = await Task.detached(
             priority: .userInitiated
         ) {
             ArchiveExtractor.extract(archive)
         }.value
+        ReaderPerformance.metric(
+            "archive_full_extract",
+            milliseconds: ReaderPerformance.milliseconds(since: startedAt)
+        )
 
         guard !Task.isCancelled else {
             if let dir {

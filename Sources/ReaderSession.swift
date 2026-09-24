@@ -37,6 +37,7 @@ final class ReaderSession {
     private let cache = ImageCache()
     private let stateStore = ReaderStateStore()
     private var loadToken = 0
+    private var openStartedAt: UInt64?
 
     var counter: String {
         items.isEmpty ? "" : "\(index + 1) / \(items.count)"
@@ -75,6 +76,8 @@ final class ReaderSession {
         manualRotate = nil
         pagesLandscape = true
         openSeq += 1
+        openStartedAt = ReaderPerformance.now()
+        ReaderPerformance.event("reader_open source=\(remote ? "remote" : "local")")
         return openSeq
     }
 
@@ -214,6 +217,9 @@ final class ReaderSession {
         loadTask = Task { [weak self] in
             guard let self else { return }
 
+            let signpost = ReaderPerformance.begin("Reader Page Load")
+            defer { ReaderPerformance.end("Reader Page Load", signpost) }
+
             let (img, img2) = await source.loadVisiblePages(
                 primary: url,
                 secondary: secondURL,
@@ -224,6 +230,14 @@ final class ReaderSession {
             guard !Task.isCancelled, token == loadToken else { return }
             current = img
             renderTick &+= 1
+
+            if let openStartedAt {
+                ReaderPerformance.metric(
+                    "reader_first_visible_page",
+                    milliseconds: ReaderPerformance.milliseconds(since: openStartedAt)
+                )
+                self.openStartedAt = nil
+            }
             secondary = img2
             failedName = (img == nil) ? url.lastPathComponent : nil
             failedURL = (img == nil) ? url : nil
@@ -376,6 +390,13 @@ final class ReaderSession {
     }
 
     func setFailure(name: String, url: URL) {
+        if let openStartedAt {
+            ReaderPerformance.metric(
+                "reader_open_failed",
+                milliseconds: ReaderPerformance.milliseconds(since: openStartedAt)
+            )
+            self.openStartedAt = nil
+        }
         failedName = name
         failedURL = url
         current = nil
@@ -389,5 +410,6 @@ final class ReaderSession {
         orientationProbeTask?.cancel()
         orientationProbeTask = nil
         stateStore.cancel()
+        openStartedAt = nil
     }
 }
