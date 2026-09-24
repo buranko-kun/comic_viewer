@@ -9,7 +9,7 @@ final class ReaderStateStoreTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        comicKey = "/tmp/ComicViewerTests/state-(UUID().uuidString)"
+        comicKey = "/tmp/ComicViewerTests/state-" + UUID().uuidString
         stateURL = CentralStore.stateURL(for: comicKey)
         try? FileManager.default.removeItem(at: stateURL)
     }
@@ -49,7 +49,7 @@ final class ReaderStateStoreTests: XCTestCase {
 
     func testLegacySidecarIsLoadedAndMarkedForMigration() throws {
         let legacyURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ComicViewerLegacy-(UUID().uuidString).comicviewer.json")
+            .appendingPathComponent("ComicViewerLegacy-" + UUID().uuidString + ".comicviewer.json")
         defer { try? FileManager.default.removeItem(at: legacyURL) }
 
         let data = Data(#"{ "version": 1, "chapters": ["page-2.jpg"] }"#.utf8)
@@ -69,7 +69,7 @@ final class ReaderStateStoreTests: XCTestCase {
 
     func testConfigureCancelsPendingSaveForPreviousComic() async {
         let firstKey = comicKey!
-        let secondKey = "/tmp/ComicViewerTests/state-(UUID().uuidString)"
+        let secondKey = "/tmp/ComicViewerTests/state-" + UUID().uuidString
 
         let store = ReaderStateStore()
         store.configure(comicKey: firstKey, legacyStateURLs: [])
