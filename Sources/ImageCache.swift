@@ -59,38 +59,35 @@ actor ImageCache {
             return
         }
 
-        var iterator = targets.makeIterator()
-        var completed = 0
         var decoded = 0
+        var nextIndex = 0
 
         await withTaskGroup(of: Bool.self) { group in
-            func pump() {
-                while completed + groupCount(group) < maxConcurrentPrefetch,
-                      let url = iterator.next() {
-                    group.addTask {
-                        await self.image(for: url, maxPixel: maxPixel) != nil
-                    }
+            let initialCount = min(maxConcurrentPrefetch, targets.count)
+            for index in 0..<initialCount {
+                let url = targets[index]
+                group.addTask {
+                    await self.image(for: url, maxPixel: maxPixel) != nil
                 }
+                nextIndex += 1
             }
 
-            pump()
             while let result = await group.next() {
-                completed += 1
                 if result { decoded += 1 }
-                pump()
+
+                guard nextIndex < targets.count else { continue }
+
+                let url = targets[nextIndex]
+                group.addTask {
+                    await self.image(for: url, maxPixel: maxPixel) != nil
+                }
+                nextIndex += 1
             }
         }
 
         ReaderPerformance.event(
             "image_cache prefetch_requested=\(targets.count) decoded=\(decoded)"
         )
-    }
-
-    private func groupCount<T>(_ group: TaskGroup<T>) -> Int {
-        // TaskGroup intentionally exposes no child-count API. The helper is kept at zero so
-        // prefetch work is pumped by the completion count; the hard bound is enforced by the
-        // separate active counter below.
-        0
     }
 
     private func insert(_ url: URL, _ img: DisplayImage) {
