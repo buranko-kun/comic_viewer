@@ -78,6 +78,7 @@ struct LibraryView: View {
             keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
         }
         .onDisappear { keyMonitor.stop() }
+        .onAppear { historyRefresh += 1 }
         .task(id: router.selectedComic?.id) { await loadChapters() }
     }
 
