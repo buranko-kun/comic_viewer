@@ -66,6 +66,7 @@ final class ReaderSession {
         loadTask = nil
         orientationProbeTask?.cancel()
         orientationProbeTask = nil
+        stateStore.cancel()
 
         current = nil
         secondary = nil
