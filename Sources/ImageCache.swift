@@ -12,20 +12,29 @@ actor ImageCache {
     func image(for url: URL, maxPixel: Int) -> DisplayImage? {
         if let hit = store[url] {
             touch(url)
+            ReaderPerformance.event("image_cache hit")
             return hit
         }
-        guard let img = ImageLoader.decodeDisplay(url, maxPixel: maxPixel) else { return nil }
+
+        ReaderPerformance.event("image_cache miss")
+        guard let img = ImageLoader.decodeDisplay(url, maxPixel: maxPixel) else {
+            ReaderPerformance.event("image_cache decode_failed")
+            return nil
+        }
         insert(url, img)
         return img
     }
 
     /// Warm the cache for the given URLs (e.g. next/previous) without returning them.
     func prefetch(_ urls: [URL], maxPixel: Int) {
+        var decoded = 0
         for url in urls where store[url] == nil {
             if let img = ImageLoader.decodeDisplay(url, maxPixel: maxPixel) {
                 insert(url, img)
+                decoded += 1
             }
         }
+        ReaderPerformance.event("image_cache prefetch_requested=\(urls.count) decoded=\(decoded)")
     }
 
     private func insert(_ url: URL, _ img: DisplayImage) {
@@ -60,8 +69,17 @@ actor RemotePageCache {
     private static let maxAttempts = 10
 
     func image(for url: URL, maxPixel: Int) async -> DisplayImage? {
-        if let hit = store[url] { touch(url); return hit }
-        if let running = inFlight[url] { return await running.value }
+        if let hit = store[url] {
+            touch(url)
+            ReaderPerformance.event("remote_page_cache hit")
+            return hit
+        }
+        if let running = inFlight[url] {
+            ReaderPerformance.event("remote_page_cache coalesced")
+            return await running.value
+        }
+        ReaderPerformance.event("remote_page_cache miss")
+        let startedAt = ReaderPerformance.now()
         let task = Task<DisplayImage?, Never> {
             for attempt in 0..<Self.maxAttempts {
                 if Task.isCancelled { return nil }
@@ -80,6 +98,10 @@ actor RemotePageCache {
         }
         inFlight[url] = task
         let img = await task.value
+        ReaderPerformance.metric(
+            "remote_page_load",
+            milliseconds: ReaderPerformance.milliseconds(since: startedAt)
+        )
         inFlight[url] = nil
         if let img { insert(url, img) }
         return img
