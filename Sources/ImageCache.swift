@@ -4,11 +4,19 @@ import Foundation
 /// instant and decoding never blocks the main thread. Keyed by URL (single display
 /// size per session). Small capacity keeps memory bounded.
 actor ImageCache {
+    static let defaultMaxBytes = 256 * 1024 * 1024
+
     private var store: [URL: DisplayImage] = [:]
     private var order: [URL] = []          // oldest → newest
+    private var costs: [URL: Int] = [:]
+    private var totalBytes = 0
     private var inFlight: [URL: Task<DisplayImage?, Never>] = [:]
-    private let capacity = 7
+    private let maxBytes: Int
     private let maxConcurrentPrefetch = 3
+
+    init(maxBytes: Int = Self.defaultMaxBytes) {
+        self.maxBytes = max(1, maxBytes)
+    }
 
     /// Return a cached image, or decode + cache it.
     ///
@@ -17,7 +25,7 @@ actor ImageCache {
     func image(for url: URL, maxPixel: Int) async -> DisplayImage? {
         if let hit = store[url] {
             touch(url)
-            ReaderPerformance.event("image_cache hit")
+            ReaderPerformance.event("image_cache hit bytes=\(totalBytes) items=\(store.count)")
             return hit
         }
 
@@ -41,14 +49,14 @@ actor ImageCache {
         }
 
         insert(url, img)
+        ReaderPerformance.event("image_cache inserted bytes=\(totalBytes) items=\(store.count)")
         return img
     }
 
     /// Warm the cache for nearby pages with bounded parallelism.
     ///
-    /// The previous implementation decoded every requested page serially inside the actor. The
-    /// actor now yields while each detached decode runs, allowing several independent pages to
-    /// decode concurrently without creating an unbounded burst of work.
+    /// The cache is budgeted by decoded bitmap bytes rather than page count. Large pages therefore
+    /// consume proportionally more of the budget and evict older pages sooner.
     func prefetch(_ urls: [URL], maxPixel: Int) async {
         let targets = urls.filter {
             store[$0] == nil && inFlight[$0] == nil
@@ -90,13 +98,56 @@ actor ImageCache {
         )
     }
 
+    /// Approximate resident bitmap memory, exposed for diagnostics and tests.
+    var estimatedMemoryBytes: Int {
+        totalBytes
+    }
+
+    /// Number of resident decoded images, exposed for diagnostics and tests.
+    var imageCount: Int {
+        store.count
+    }
+
+    /// The memory cost used for a decoded CGImage.
+    static func estimatedCost(of image: DisplayImage) -> Int {
+        image.cgImage.bytesPerRow * image.cgImage.height
+    }
+
     private func insert(_ url: URL, _ img: DisplayImage) {
+        let newCost = Self.estimatedCost(of: img)
+
+        if let previousCost = costs.removeValue(forKey: url) {
+            totalBytes -= previousCost
+        }
         store[url] = img
         touch(url)
-        while order.count > capacity {
-            let evicted = order.removeFirst()
-            store[evicted] = nil
+        costs[url] = newCost
+        totalBytes += newCost
+
+        // An individual page can legitimately exceed the normal budget. Keep that page as a
+        // single cache entry rather than immediately evicting it; this bounds the cache to the
+        // current oversized page instead of causing an endless decode/evict/decode loop.
+        if newCost > maxBytes {
+            for victim in order.dropFirst() {
+                remove(victim)
+            }
+            ReaderPerformance.event(
+                "image_cache oversize_page bytes=\(newCost) budget=\(maxBytes)"
+            )
+            return
         }
+
+        while totalBytes > maxBytes, let victim = order.first {
+            remove(victim)
+        }
+    }
+
+    private func remove(_ url: URL) {
+        store.removeValue(forKey: url)
+        if let cost = costs.removeValue(forKey: url) {
+            totalBytes -= cost
+        }
+        order.removeAll { $0 == url }
     }
 
     private func touch(_ url: URL) {
