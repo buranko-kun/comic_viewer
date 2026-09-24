@@ -108,9 +108,11 @@ struct LibraryView: View {
         let entries = library.entries(at: router.currentDir)
         let atHome = router.currentDir == nil
         let recents = atHome ? library.continueReading : []
+        let recentlyRead = atHome ? library.recentlyRead : []
         let cols = atHome ? store.collections.filter { !$0.items.isEmpty } : []
-        let hasShelves = !recents.isEmpty || !cols.isEmpty
-        return comicGrid(header: hasShelves ? AnyView(homeHeader(recents, cols)) : nil) {
+        let hasShelves = !recents.isEmpty || !recentlyRead.isEmpty || !cols.isEmpty
+        let _ = historyRefresh
+        return comicGrid(header: hasShelves ? AnyView(homeHeader(recents, recentlyRead, cols)) : nil) {
             ForEach(entries.groups) { group in
                 GroupCard(group: group, cache: coverCache) { router.openGroup(group) }
             }
