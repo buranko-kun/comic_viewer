@@ -248,8 +248,7 @@ struct ContentView: View {
         if model.spreadEnabled,
            let first = model.current,
            let second = model.secondary {
-            let left = readerSettings.readingDirection.isRightToLeft ? second : first
-            let right = readerSettings.readingDirection.isRightToLeft ? first : second
+            let (left, right) = readerSettings.readingDirection.arrangeSpread(first, second)
 
             HStack(spacing: 0) {
                 RotatingImageView(image: left, rotate: false)
@@ -788,7 +787,7 @@ struct ContentView: View {
         // Navigation/function keys remain key-code based because they are not layout-dependent.
         // In RTL, the horizontal arrow meaning is reversed: the left arrow advances and the right
         // arrow goes back. Pan directions remain physical so zoomed pages can be explored naturally.
-        let rtl = readerSettings.readingDirection.isRightToLeft
+        let rightArrowAdvances = readerSettings.readingDirection.rightArrowAdvances
 
         switch event.keyCode {
         case 53: // Esc: close help / fullscreen / library
@@ -810,17 +809,17 @@ struct ContentView: View {
 
         case 123: // Left
             if shift {
-                flashToast(rtl ? model.nextChapter() : model.prevChapter())
+                flashToast(rightArrowAdvances ? model.prevChapter() : model.nextChapter())
             } else {
-                panOrNavigate(dx: 1) { rtl ? model.next() : model.prev() }
+                panOrNavigate(dx: 1) { rightArrowAdvances ? model.prev() : model.next() }
             }
             return true
 
         case 124: // Right
             if shift {
-                flashToast(rtl ? model.prevChapter() : model.nextChapter())
+                flashToast(rightArrowAdvances ? model.nextChapter() : model.prevChapter())
             } else {
-                panOrNavigate(dx: -1) { rtl ? model.prev() : model.next() }
+                panOrNavigate(dx: -1) { rightArrowAdvances ? model.next() : model.prev() }
             }
             return true
 
