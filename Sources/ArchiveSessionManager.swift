@@ -100,7 +100,7 @@ actor ArchiveSessionManager {
     /// If a streamed session already exists, wait for its background fill and reuse its directory
     /// rather than extracting the same archive a second time.
     func extractFully(for archive: URL) async -> Session? {
-        if let existing = session(for: archive) {
+        if let existing = await session(for: archive) {
             if let streamer = existing.streamer {
                 await streamer.finishBackgroundFill()
                 let items = Self.scanImages(in: existing.dir)
@@ -142,13 +142,18 @@ actor ArchiveSessionManager {
     }
 
     /// Remove every cached extraction directory.
-    func cleanup() {
-        let dirs = sessions.values.map(\.dir)
+    ///
+    /// Any active streamers are cancelled before their directories are removed.
+    func cleanup() async {
+        let cached = Array(sessions.values)
         sessions.removeAll()
         order.removeAll()
         currentKey = nil
-        for dir in dirs {
-            try? FileManager.default.removeItem(at: dir)
+        registrationTokens.removeAll()
+
+        for session in cached {
+            await session.streamer?.cancel()
+            try? FileManager.default.removeItem(at: session.dir)
         }
     }
 
