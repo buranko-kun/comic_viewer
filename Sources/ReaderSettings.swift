@@ -36,6 +36,16 @@ final class ReaderSettings {
         var isRightToLeft: Bool {
             self == .rightToLeft
         }
+
+        /// Whether the physical right arrow advances to the next logical page.
+        var rightArrowAdvances: Bool {
+            !isRightToLeft
+        }
+
+        /// Arrange two logically consecutive pages for physical left/right presentation.
+        func arrangeSpread<T>(_ first: T, _ second: T) -> (left: T, right: T) {
+            isRightToLeft ? (second, first) : (first, second)
+        }
     }
 
     var defaultView: DefaultView {
