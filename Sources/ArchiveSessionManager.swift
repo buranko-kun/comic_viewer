@@ -55,11 +55,18 @@ actor ArchiveSessionManager {
         if let token, registrationTokens[key] != token {
             return false
         }
+        let previous = sessions[key]
         sessions[key] = session
         touch(key)
         if makeCurrent {
             currentKey = key
         }
+
+        if let previous, previous.dir != session.dir {
+            await previous.streamer?.cancel()
+            try? FileManager.default.removeItem(at: previous.dir)
+        }
+
         await evictIfNeeded()
         return true
     }
