@@ -19,6 +19,7 @@ struct ComicViewerApp: App {
         CatalogTest.runIfRequested()    // headless catalog fetch/normalize test; exits if --catalogtest
         MetadataTest.runIfRequested()   // headless ComicInfo.xml parse test; exits if --metadatatest
         ReadComicsTest.runIfRequested() // headless connector-parser test; exits if --readcomicstest
+        SourcePluginTest.runIfRequested() // headless source-plugin smoke test; exits if --sourceplugintest
     }
 
     var body: some Scene {
