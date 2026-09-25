@@ -13,6 +13,7 @@ final class AppRouter {
     var showShortcuts = false
     /// The collection currently opened in the Collections view (nil = the list of collections).
     var selectedCollection: String?
+    var selectedSmartCollection: String?
     /// Orientation of the Library screen. The **library is enjoyed in landscape** (the reader
     /// is what goes portrait); a toolbar button can flip it.
     var libraryPortrait = false
@@ -35,6 +36,7 @@ final class AppRouter {
         case home                       // default: back to the Home library
         case library(path: [URL])       // restore this drilled library folder (a local comic's series)
         case local                       // restore the flat local library
+        case collections                 // restore the Collections screen
         case readComics(CatalogEntry)   // restore this ReadComicsOnline series' issue list
     }
     var readerOrigin: ReaderOrigin = .home
@@ -150,7 +152,11 @@ final class AppRouter {
     }
 
     /// Open the Collections screen (at its top level).
-    func showCollections() { selectedCollection = nil; route = .collections }
+    func showCollections() {
+        selectedCollection = nil
+        selectedSmartCollection = nil
+        route = .collections
+    }
 
     /// Go up one level (Escape): reader/browse → library, chapter level → folder listing, then
     /// pop the folder path one step. At home there's nothing above, so it's a no-op. Returns
@@ -179,6 +185,11 @@ final class AppRouter {
                     selectedComic = nil
                     route = .local
                     return true
+                case .collections:
+                    readerOrigin = .home
+                    route = .collections
+                    LibraryModel.shared.rescan()
+                    return true
                 case .home:
                     showLibrary()
                     return true
@@ -190,7 +201,11 @@ final class AppRouter {
                 showLibrary()
                 return true
             case .collections:
-                if selectedCollection != nil { selectedCollection = nil; return true }
+                if selectedCollection != nil || selectedSmartCollection != nil {
+                    selectedCollection = nil
+                    selectedSmartCollection = nil
+                    return true
+                }
                 showLibrary()
                 return true
             case .library:

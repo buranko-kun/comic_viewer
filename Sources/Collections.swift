@@ -439,6 +439,7 @@ struct DownloadProgressBar: View {
 struct CollectionsView: View {
     @Environment(AppRouter.self) private var router
     private let store = CollectionStore.shared
+    @State private var library = LibraryModel.shared
     @State private var keyMonitor = KeyMonitor()
     @State private var swipeBack = SwipeBackDetector()
 
@@ -488,15 +489,45 @@ struct CollectionsView: View {
 
     private var current: Collection? { router.selectedCollection.flatMap { store.collection($0) } }
 
+    private var currentSmart: SmartCollectionKind? {
+        guard let id = router.selectedSmartCollection else { return nil }
+        return SmartCollectionKind(rawValue: id)
+    }
+
+    private var topBarTitle: String {
+        if let current { return current.name }
+        if let currentSmart { return currentSmart.title }
+        return "Collections"
+    }
+
+    private var topBarSubtitle: String {
+        if let current {
+            return String(current.items.count)
+                + " item"
+                + (current.items.count == 1 ? "" : "s")
+        }
+        if let currentSmart {
+            let count = currentSmart.comics(in: library).count
+            return String(count) + " item" + (count == 1 ? "" : "s")
+        }
+        let count = store.collections.count
+        return String(count) + " collection" + (count == 1 ? "" : "s")
+    }
+
     private var topBar: some View {
         HStack(spacing: 14) {
-            if current != nil {
-                Button { router.escapeBack() } label: { Label("Collections", systemImage: "chevron.left") }
-                    .pointingHandCursor()
+            if current != nil || currentSmart != nil {
+                Button {
+                    router.selectedCollection = nil
+                    router.selectedSmartCollection = nil
+                } label: {
+                    Label("Collections", systemImage: "chevron.left")
+                }
+                .pointingHandCursor()
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(current?.name ?? "Collections").font(.headline).foregroundStyle(.white).lineLimit(1)
-                Text(subtitle).font(.caption2).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                Text(topBarTitle).font(.headline).foregroundStyle(.white).lineLimit(1)
+                Text(topBarSubtitle).font(.caption2).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
             }
             Spacer()
             Button { router.showLibrary() } label: {
@@ -512,7 +543,7 @@ struct CollectionsView: View {
             }
             .labelStyle(.iconOnly).help("Online").pointingHandCursor()
             DownloadQueueButton()
-            if current == nil {
+            if current == nil && currentSmart == nil {
                 Button { showNew = true } label: { Label("New", systemImage: "plus") }
                     .pointingHandCursor()
             }
@@ -533,8 +564,8 @@ struct CollectionsView: View {
     @ViewBuilder private var content: some View {
         if let c = current {
             itemsGrid(c)
-        } else if store.collections.isEmpty {
-            emptyState
+        } else if let smart = currentSmart {
+            SmartCollectionItemsView(kind: smart)
         } else {
             collectionsGrid
         }
@@ -557,17 +588,72 @@ struct CollectionsView: View {
     private var collectionsGrid: some View {
         GeometryReader { geo in
             ScrollView {
-                LazyVGrid(columns: GridStyle.columns(geo.size.width), alignment: .center,
-                          spacing: GridStyle.rowSpacing) {
-                    ForEach(store.collections) { col in
-                        CollectionFolderCard(collection: col) { router.selectedCollection = col.id }
-                            .contextMenu {
-                                Button("Rename…") { renaming = col }
-                                Button("Delete…", role: .destructive) { pendingDelete = col }
-                            }
+                VStack(alignment: .leading, spacing: 26) {
+                    smartCollectionsSection(width: geo.size.width)
+                    if !store.collections.isEmpty {
+                        manualCollectionsSection(width: geo.size.width)
                     }
                 }
-                .padding(.horizontal, GridStyle.hPadding).padding(.top, 24).padding(.bottom, 24)
+                .padding(.horizontal, GridStyle.hPadding)
+                .padding(.top, 24)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func smartCollectionsSection(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Smart Collections")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+
+            LazyVGrid(
+                columns: GridStyle.columns(width),
+                alignment: .center,
+                spacing: GridStyle.rowSpacing
+            ) {
+                ForEach(SmartCollectionKind.allCases) { kind in
+                    let comics = kind.comics(in: library)
+                    SmartCollectionFolderCard(
+                        kind: kind,
+                        comics: comics
+                    ) {
+                        router.selectedCollection = nil
+                        router.selectedSmartCollection = kind.rawValue
+                    }
+                }
+            }
+        }
+    }
+
+    private func manualCollectionsSection(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("My Collections")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Button { showNew = true } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .pointingHandCursor()
+            }
+
+            LazyVGrid(
+                columns: GridStyle.columns(width),
+                alignment: .center,
+                spacing: GridStyle.rowSpacing
+            ) {
+                ForEach(store.collections) { col in
+                    CollectionFolderCard(collection: col) { router.selectedCollection = col.id }
+                        .contextMenu {
+                            Button("Rename…") { renaming = col }
+                            Button("Delete…", role: .destructive) { pendingDelete = col }
+                        }
+                }
             }
         }
     }
@@ -603,6 +689,7 @@ struct CollectionsView: View {
             if let s = item.page, let u = URL(string: s) { NSWorkspace.shared.open(u) }
         case .library:
             guard let p = item.path else { return }
+            router.readerOrigin = .collections
             AppModel.shared.open(urls: [URL(fileURLWithPath: p)])
             router.route = .reader
         case .readComics:
