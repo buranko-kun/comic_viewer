@@ -258,25 +258,22 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 
     private func callAsyncJSON(_ script: String, arguments: [String: Any] = [:]) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            webView.callAsyncJavaScript(
+        let value: Any?
+        do {
+            value = try await webView.callAsyncJavaScript(
                 script,
                 arguments: arguments,
                 in: nil,
                 contentWorld: .page
-            ) { result in
-                switch result {
-                case .success(let value):
-                    guard let text = value as? String else {
-                        continuation.resume(throwing: PluginError.invalidResult)
-                        return
-                    }
-                    continuation.resume(returning: text)
-                case .failure(let error):
-                    continuation.resume(throwing: PluginError.javascript(error))
-                }
-            }
+            )
+        } catch {
+            throw PluginError.javascript(error)
         }
+
+        guard let text = value as? String else {
+            throw PluginError.invalidResult
+        }
+        return text
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
