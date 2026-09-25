@@ -87,10 +87,10 @@ final class SourcePluginStore {
     nonisolated static func makeURL(from input: String) -> URL? {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: value) else { return nil }
-        switch url.scheme?.lowercased() {
-        case "http", "https", "file": return normalizeSourceURL(url)
-        default: return nil
+        guard url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https" else {
+            return nil
         }
+        return normalizeSourceURL(url)
     }
 
     private func install(script: String, sourceURL: URL) async throws -> SourcePlugin {
