@@ -9,6 +9,7 @@ import AppKit
 struct BrowseView: View {
     @Environment(AppRouter.self) private var router
     private let sources = CatalogSourceStore.shared
+    private let plugins = SourcePluginStore.shared
     private let aggregator = CatalogAggregator.shared
 
     /// Persistent Online state (search, drilled folders, sort/filter, scroll window + anchor). Lives
@@ -187,7 +188,7 @@ struct BrowseView: View {
     // MARK: Content
 
     @ViewBuilder private var content: some View {
-        if sources.sources.isEmpty {
+        if sources.sources.isEmpty && plugins.enabledPlugins.isEmpty {
             emptyNoSources
         } else if loadingChild || (browseState.stack.isEmpty && aggregator.loading) {
             centered { ProgressView().controlSize(.large) }
@@ -203,8 +204,8 @@ struct BrowseView: View {
             VStack(spacing: 14) {
                 Image(systemName: "externaldrive.badge.plus").font(.system(size: 48))
                     .foregroundStyle(.white.opacity(0.5))
-                Text("No catalog sources yet").font(.title2.bold())
-                Text("Add your server URL(s) or import a .txt in Settings.")
+                Text("No online sources yet").font(.title2.bold())
+                Text("Add a catalog URL or install a source plugin in Settings.")
                     .foregroundStyle(.white.opacity(0.6))
                 SettingsLink { Label("Open Settings", systemImage: "gearshape") }
                     .buttonStyle(.borderedProminent).tint(.red)
@@ -384,8 +385,18 @@ struct BrowseView: View {
         loadingChild = true; childError = nil
         browseState.clearSearch(); browseState.resetScroll()
         Task {
-            do { browseState.stack.append(try await CatalogClient.catalog(at: folder.url)) }
-            catch { childError = error.localizedDescription }
+            do {
+                if let sourceID = folder.sourceID,
+                   let plugin = plugins.plugin(id: sourceID) {
+                    browseState.stack.append(
+                        try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: folder.url)
+                    )
+                } else {
+                    browseState.stack.append(try await CatalogClient.catalog(at: folder.url))
+                }
+            } catch {
+                childError = error.localizedDescription
+            }
             loadingChild = false
         }
     }
@@ -394,8 +405,16 @@ struct BrowseView: View {
         loadingChild = true; childError = nil
         Task {
             do {
-                let fresh = try await CatalogClient.catalog(at: cat.sourceURL)
-                browseState.stack[browseState.stack.count - 1] = fresh
+                if let sourceID = cat.sourceID,
+                   let plugin = plugins.plugin(id: sourceID) {
+                    browseState.stack[browseState.stack.count - 1] =
+                        try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: cat.sourceURL)
+                } else {
+                    browseState.stack[browseState.stack.count - 1] =
+                        try await CatalogClient.catalog(at: cat.sourceURL)
+                }
+            } catch {
+                childError = error.localizedDescription
             }
             catch { childError = error.localizedDescription }
             loadingChild = false
