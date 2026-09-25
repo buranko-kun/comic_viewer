@@ -219,40 +219,6 @@ struct SettingsView: View {
             do {
                 let plugin = try await plugins.install(from: url)
                 newPluginURL = ""
-                note = "Installed (plugin.name) v(plugin.version)."
-                refresh()
-            } catch {
-                note = "Couldn't install plugin: (error.localizedDescription)"
-            }
-        }
-    }
-
-    private func installPluginFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "js") ?? .plainText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        guard panel.runModal() == .OK, let file = panel.url else { return }
-
-        note = "Installing plugin…"
-        Task {
-            do {
-                let plugin = try await plugins.install(localURL: file)
-                note = "Installed (plugin.name) v(plugin.version)."
-                refresh()
-            } catch {
-                note = "Couldn't install plugin: (error.localizedDescription)"
-            }
-        }
-    }
-
-    private func installPluginURL() {
-        guard let url = SourcePluginStore.makeURL(from: newPluginURL) else { return }
-        note = "Installing plugin…"
-        Task {
-            do {
-                let plugin = try await plugins.install(from: url)
-                newPluginURL = ""
                 note = "Installed \(plugin.name) v\(plugin.version)."
                 refresh()
             } catch {
@@ -280,7 +246,6 @@ struct SettingsView: View {
         }
     }
 
-    /// Re-query servers and installed plugins so the Online section reflects the change.
     private func refresh() { Task { await CatalogAggregator.shared.loadRoots() } }
 }
 
