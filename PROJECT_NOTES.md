@@ -277,3 +277,11 @@ which app macOS will actually use for a file: `NSWorkspace.shared.urlForApplicat
 - Named chapters; remember last-read comic and reopen it.
 - Re-add HEIC/TIFF/WebP (one-line in `SupportedTypes.swift` + `Info.plist`).
 - Animated GIF support (rotation transform would apply per frame).
+
+
+## Source plugins
+
+- Installable online scrapers: SourcePlugin.swift, SourcePluginStore.swift, and SourcePluginRuntime.swift let third-party JavaScript files be installed from Preferences → Sources. Plugins run in a WKWebView page context, return the normalized RemoteCatalog shape, and participate in the existing Online browse/search/download UI without an app fork.
+- Plugins are versioned by manifest.id, can be enabled or disabled independently, and can be updated or removed from Preferences.
+- Plugin child catalogs retain a sourceID, so drilled folders route back through the owning plugin.
+- Headless smoke test: ComicViewer --sourceplugintest.
