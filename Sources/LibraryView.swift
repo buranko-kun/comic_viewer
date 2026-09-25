@@ -28,6 +28,69 @@ struct LibraryView: View {
     @State private var chapterRenameText = ""
     @State private var historyRefresh = 0
     @State private var onlineSearchText = ""
+    @State private var localSearchText = ""
+    @State private var localFilter: LocalFilter = .all
+    @State private var localSort: LocalSort = .title
+
+    private enum LocalFilter: String, CaseIterable, Identifiable {
+        case all
+        case unread
+        case inProgress
+        case completed
+        case hasChapters
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .all: return "All"
+            case .unread: return "Unread"
+            case .inProgress: return "In Progress"
+            case .completed: return "Completed"
+            case .hasChapters: return "Has Chapters"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .all: return "books.vertical"
+            case .unread: return "circle"
+            case .inProgress: return "play.circle"
+            case .completed: return "checkmark.circle"
+            case .hasChapters: return "bookmark"
+            }
+        }
+    }
+
+    private enum LocalSort: String, CaseIterable, Identifiable {
+        case title
+        case series
+        case lastRead
+        case recentlyAdded
+        case progress
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .title: return "Title"
+            case .series: return "Series"
+            case .lastRead: return "Last Read"
+            case .recentlyAdded: return "Recently Added"
+            case .progress: return "Progress"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .title: return "textformat"
+            case .series: return "rectangle.stack"
+            case .lastRead: return "clock"
+            case .recentlyAdded: return "calendar"
+            case .progress: return "chart.bar"
+            }
+        }
+    }
 
     private var isPortrait: Bool { router.libraryPortrait }
 
@@ -115,9 +178,7 @@ struct LibraryView: View {
     /// Flat local-library destination: every downloaded/on-disk comic, without Home shelves or
     /// the folder hierarchy. This is the explicit Local section in the app chrome.
     private var localGrid: some View {
-        let comics = library.comics.sorted {
-            $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
+        let comics = filteredLocalComics
         return comicGrid {
             ForEach(comics) { comic in
                 CoverCell(comic: comic, cache: coverCache) {
@@ -126,7 +187,117 @@ struct LibraryView: View {
                 .contextMenu { comicMenu(comic) }
             }
         }
+        .overlay {
+            if comics.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: localSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          && localFilter == .all ? "books.vertical" : "magnifyingglass")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.white.opacity(0.35))
+                    Text(localEmptyMessage)
+                        .font(.headline)
+                        .foregroundStyle(.white.opacity(0.65))
+                    if !localSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || localFilter != .all {
+                        Button("Clear Search & Filters") {
+                            localSearchText = ""
+                            localFilter = .all
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.white)
+                        .pointingHandCursor()
+                    }
+                }
+            }
+        }
         .overlay(alignment: .top) { localToolbar }
+    }
+
+    /// Search covers title, series, and ComicInfo-derived metadata, then applies a reading-state
+    /// filter and sorts the remaining cards.
+    private var filteredLocalComics: [Comic] {
+        let query = localSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matched = library.comics.filter { comic in
+            let textMatches = query.isEmpty
+                || comic.title.localizedCaseInsensitiveContains(query)
+                || comic.series.localizedCaseInsensitiveContains(query)
+                || (comic.tooltip?.localizedCaseInsensitiveContains(query) ?? false)
+
+            guard textMatches else { return false }
+
+            switch localFilter {
+            case .all:
+                return true
+            case .unread:
+                return comic.progress == nil
+            case .inProgress:
+                guard let progress = comic.progress else { return false }
+                return progress.count == 0 || progress.page < progress.count
+            case .completed:
+                guard let progress = comic.progress, progress.count > 0 else { return false }
+                return progress.page >= progress.count
+            case .hasChapters:
+                return comic.chapterCount > 0
+            }
+        }
+
+        return localSortComics(matched)
+    }
+
+    private var localEmptyMessage: String {
+        let hasQuery = !localSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasQuery { return "No comics match your search" }
+        switch localFilter {
+        case .all: return "No comics in your library"
+        case .unread: return "No unread comics"
+        case .inProgress: return "No comics in progress"
+        case .completed: return "No completed comics"
+        case .hasChapters: return "No comics with chapters"
+        }
+    }
+
+    private func localSortComics(_ comics: [Comic]) -> [Comic] {
+        func titleOrder(_ a: Comic, _ b: Comic) -> Bool {
+            let title = a.title.localizedStandardCompare(b.title)
+            if title != .orderedSame { return title == .orderedAscending }
+            return a.url.path.localizedStandardCompare(b.url.path) == .orderedAscending
+        }
+
+        switch localSort {
+        case .title:
+            return comics.sorted(by: titleOrder)
+
+        case .series:
+            return comics.sorted {
+                let series = $0.series.localizedStandardCompare($1.series)
+                if series != .orderedSame { return series == .orderedAscending }
+                return titleOrder($0, $1)
+            }
+
+        case .lastRead:
+            return comics.sorted {
+                let a = CentralStore.lastReadDate(forKey: CentralStore.key(for: $0.url)) ?? .distantPast
+                let b = CentralStore.lastReadDate(forKey: CentralStore.key(for: $1.url)) ?? .distantPast
+                if a != b { return a > b }
+                return titleOrder($0, $1)
+            }
+
+        case .recentlyAdded:
+            return comics.sorted {
+                let a = (try? $0.url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let b = (try? $1.url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                if a != b { return a > b }
+                return titleOrder($0, $1)
+            }
+
+        case .progress:
+            return comics.sorted {
+                let a = $0.progress?.fraction ?? 0
+                let b = $1.progress?.fraction ?? 0
+                if a != b { return a > b }
+                return titleOrder($0, $1)
+            }
+        }
     }
 
     /// The current folder level: sub-folder groups (series / sub-series) to drill into,
@@ -343,11 +514,42 @@ struct LibraryView: View {
             Button { router.showLibrary() } label: { Label("Home", systemImage: "chevron.left") }
                 .pointingHandCursor()
             Text("Local").font(.headline).foregroundStyle(.white)
-            Text("\(library.comics.count) comics")
+            Text(localCountLabel)
                 .font(.caption2).foregroundStyle(.white.opacity(0.5))
             Spacer()
-            Button { router.showOnlineSearch() } label: { Label("Search", systemImage: "magnifyingglass") }
-                .labelStyle(.iconOnly).help("Search Online").pointingHandCursor()
+            localSearchField
+            Menu {
+                ForEach(LocalFilter.allCases) { filter in
+                    Button {
+                        localFilter = filter
+                    } label: {
+                        Label(filter.label, systemImage: filter == localFilter ? "checkmark" : filter.systemImage)
+                    }
+                }
+            } label: {
+                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .help("Filter local comics")
+            .pointingHandCursor()
+
+            Menu {
+                ForEach(LocalSort.allCases) { sort in
+                    Button {
+                        localSort = sort
+                    } label: {
+                        Label(sort.label, systemImage: sort == localSort ? "checkmark" : sort.systemImage)
+                    }
+                }
+            } label: {
+                Label("Sort: \(localSort.label)", systemImage: "arrow.up.arrow.down")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .help("Sort local comics")
+            .pointingHandCursor()
+
             Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
                 .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
             Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
@@ -358,6 +560,30 @@ struct LibraryView: View {
         .padding(.horizontal, 30).padding(.vertical, 10)
         .background(Color.black)
         .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
+    }
+
+    private var localSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
+            TextField("Search Local", text: $localSearchText)
+                .textFieldStyle(.plain)
+                .frame(width: 190)
+            if !localSearchText.isEmpty {
+                Button { localSearchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(.white.opacity(0.08), in: Capsule())
+    }
+
+    private var localCountLabel: String {
+        let total = library.comics.count
+        let shown = filteredLocalComics.count
+        return shown == total ? "\(total) comics" : "\(shown) of \(total)"
     }
 
     /// Toolbar while drilled into a sub-folder: back one level + the folder's name + count.
