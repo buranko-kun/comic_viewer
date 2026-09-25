@@ -12,6 +12,7 @@ struct PageScrubber: View {
     let cache: ThumbnailCache
     let showChapterMarkers: Bool
     let chapterIndices: [Int]
+    let coverAloneInSpread: Bool
     let onSelect: (Int) -> Void
 
     init(
@@ -22,6 +23,7 @@ struct PageScrubber: View {
         cache: ThumbnailCache,
         showChapterMarkers: Bool = false,
         chapterIndices: [Int] = [],
+        coverAloneInSpread: Bool = false,
         onSelect: @escaping (Int) -> Void
     ) {
         self.urls = urls
@@ -31,6 +33,7 @@ struct PageScrubber: View {
         self.cache = cache
         self.showChapterMarkers = showChapterMarkers
         self.chapterIndices = chapterIndices
+        self.coverAloneInSpread = coverAloneInSpread
         self.onSelect = onSelect
     }
 
@@ -143,7 +146,7 @@ struct PageScrubber: View {
                     .stroke(.white.opacity(0.18), lineWidth: 1)
             )
 
-            Text(spreadEnabled && index + 1 < urls.count
+            Text(spreadEnabled && (!coverAloneInSpread || index != 0) && index + 1 < urls.count
                  ? "Pages \(index + 1)–\(index + 2) of \(urls.count)"
                  : "Page \(index + 1) of \(urls.count)")
                 .font(.caption.monospacedDigit())
@@ -161,7 +164,11 @@ struct PageScrubber: View {
 
         guard urls.indices.contains(index) else { return }
         let firstURL = urls[index]
-        let secondURL = spreadEnabled && urls.indices.contains(index + 1) ? urls[index + 1] : nil
+        let secondURL = spreadEnabled
+            && (!coverAloneInSpread || index != 0)
+            && urls.indices.contains(index + 1)
+            ? urls[index + 1]
+            : nil
         let cache = cache
         let maxPixel = previewMaxPixel
 
@@ -202,6 +209,10 @@ struct PageScrubber: View {
         guard !urls.isEmpty else { return 0 }
         let clamped = min(max(index, 0), urls.count - 1)
         guard spreadEnabled else { return clamped }
+        if coverAloneInSpread {
+            guard clamped > 0 else { return 0 }
+            return 1 + ((clamped - 1) / 2) * 2
+        }
         return clamped - (clamped % 2)
     }
 
@@ -212,10 +223,19 @@ struct PageScrubber: View {
         return Int((logical * CGFloat(count - 1)).rounded())
     }
 
-    static func normalizedTargetIndex(_ index: Int, count: Int, spreadEnabled: Bool) -> Int {
+    static func normalizedTargetIndex(
+        _ index: Int,
+        count: Int,
+        spreadEnabled: Bool,
+        coverAloneInSpread: Bool = false
+    ) -> Int {
         guard count > 0 else { return 0 }
         let clamped = min(max(index, 0), count - 1)
         guard spreadEnabled else { return clamped }
+        if coverAloneInSpread {
+            guard clamped > 0 else { return 0 }
+            return 1 + ((clamped - 1) / 2) * 2
+        }
         return clamped - (clamped % 2)
     }
 }

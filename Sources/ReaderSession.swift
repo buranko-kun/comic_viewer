@@ -122,7 +122,8 @@ final class ReaderSession {
 
         navigation.configure(
             items: newItems,
-            folder: newFolder
+            folder: newFolder,
+            coverAloneInSpread: ReaderSettings.shared.coverAloneInSpread
         )
 
         if let first = items.first, first.isFileURL, let info = ImageLoader.probe(first) {
@@ -183,8 +184,16 @@ final class ReaderSession {
         reload()
     }
 
+    func setCoverAloneInSpread(_ enabled: Bool) {
+        navigation.setCoverAloneInSpread(enabled)
+        guard navigation.spreadEnabled else { return }
+        scheduleSaveState()
+        reload()
+    }
+
     @discardableResult
     func toggleSpread() -> String {
+        navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
         let message = navigation.toggleSpread()
         if !navigation.spreadEnabled {
             secondary = nil
@@ -213,7 +222,7 @@ final class ReaderSession {
         loadToken += 1
         let token = loadToken
         let url = items[index]
-        let secondURL = (spreadEnabled && items.indices.contains(index + 1)) ? items[index + 1] : nil
+        let secondURL = navigation.secondaryIndex.map { items[$0] }
         let maxPixel = Self.displayMaxPixel()
         let source = source
 
@@ -297,6 +306,11 @@ final class ReaderSession {
 
     var readingProgress: Double {
         navigation.readingProgress
+    }
+
+    /// First logical page of the visible spread containing an index.
+    func spreadStartIndex(for index: Int) -> Int {
+        navigation.spreadStartIndex(for: index)
     }
 
     @discardableResult

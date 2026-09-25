@@ -169,6 +169,32 @@ private struct ReaderTab: View {
             }
             .disabled(s.timelineScope == .chapter)
 
+            Divider()
+
+            Text("Two-page spread").font(.headline)
+
+            Toggle("Keep cover page alone", isOn: $s.coverAloneInSpread)
+                .help("When enabled, page 1 is shown by itself; pages 2–3, 4–5, etc. form spreads.")
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Gutter")
+                    Spacer()
+                    Text("\(Int(s.spreadGutter.rounded())) pt")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 42, alignment: .trailing)
+                }
+
+                Slider(value: $s.spreadGutter, in: 0...48, step: 1)
+                    .help("Space between facing pages in two-page spread mode.")
+            }
+
+            Text("The cover setting updates spread layout immediately. The gutter also updates immediately.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             }
             .padding(20)
         }
