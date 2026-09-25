@@ -227,7 +227,7 @@ final class AppRouter {
 /// sees one section with a source picker.
 enum OnlineServer: String, CaseIterable, Hashable {
     case getComics, readComics
-    var label: String { self == .getComics ? "GetComics" : "ReadComicsOnline" }
+    var label: String { self == .getComics ? "Catalogs" : "ReadComicsOnline" }
     var route: AppRouter.Route { self == .getComics ? .browse : .readcomics }
 }
 
