@@ -7,7 +7,7 @@ final class ReaderNavigationTests: XCTestCase {
         var navigation = ReaderNavigation()
         let pages = makePages(count: 4)
 
-        navigation.configure(items: pages, folder: nil)
+        navigation.configure(items: pages, folder: nil, coverAloneInSpread: false)
 
         XCTAssertTrue(navigation.goTo(index: 3))
         XCTAssertEqual(navigation.index, 3)
@@ -17,6 +17,53 @@ final class ReaderNavigationTests: XCTestCase {
 
         let state = navigation.makeState(comicKey: nil)
         XCTAssertEqual(state.lastPage, pages[3].absoluteString)
+    }
+
+    func testCoverAloneSpreadUsesCoverThenPairs() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 6)
+
+        navigation.configure(items: pages, folder: nil, coverAloneInSpread: true)
+
+        XCTAssertEqual(navigation.goTo(index: 0), true)
+        XCTAssertEqual(navigation.toggleSpread(), "Two-page spread")
+        XCTAssertEqual(navigation.index, 0)
+        XCTAssertNil(navigation.secondaryIndex)
+
+        XCTAssertTrue(navigation.next())
+        XCTAssertEqual(navigation.index, 1)
+        XCTAssertEqual(navigation.secondaryIndex, 2)
+
+        XCTAssertTrue(navigation.next())
+        XCTAssertEqual(navigation.index, 3)
+        XCTAssertEqual(navigation.secondaryIndex, 4)
+
+        XCTAssertTrue(navigation.goTo(index: 5))
+        XCTAssertEqual(navigation.index, 5)
+        XCTAssertNil(navigation.secondaryIndex)
+
+        XCTAssertTrue(navigation.prev())
+        XCTAssertEqual(navigation.index, 3)
+
+        XCTAssertTrue(navigation.goTo(index: 2))
+        XCTAssertEqual(navigation.index, 1)
+        XCTAssertEqual(navigation.secondaryIndex, 2)
+
+        XCTAssertTrue(navigation.prev())
+        XCTAssertEqual(navigation.index, 0)
+    }
+
+    func testDisablingSpreadRestoresLogicalResumePage() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 5)
+
+        navigation.configure(items: pages, folder: nil, coverAloneInSpread: true)
+        XCTAssertTrue(navigation.goTo(index: 2))
+        XCTAssertEqual(navigation.toggleSpread(), "Two-page spread")
+        XCTAssertEqual(navigation.index, 1)
+
+        XCTAssertEqual(navigation.toggleSpread(), "Single page")
+        XCTAssertEqual(navigation.index, 2)
     }
 
     func testConfigurePreservesSpreadModeAcrossComicOpens() {

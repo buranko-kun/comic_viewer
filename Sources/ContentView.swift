@@ -169,6 +169,9 @@ struct ContentView: View {
             .onChange(of: model.spreadEnabled) { _, _ in
                 handleSpreadChanged()
             }
+            .onChange(of: readerSettings.coverAloneInSpread) { _, value in
+                model.setCoverAloneInSpread(value)
+            }
             .onChange(of: model.transientMessage) { _, message in
                 handleTransientMessage(message)
             }
@@ -339,7 +342,7 @@ struct ContentView: View {
            let second = model.secondary {
             let (left, right) = readerSettings.readingDirection.arrangeSpread(first, second)
 
-            HStack(spacing: 0) {
+            HStack(spacing: max(0, readerSettings.spreadGutter)) {
                 RotatingImageView(image: left, rotate: false)
                 RotatingImageView(image: right, rotate: false)
             }
@@ -699,7 +702,9 @@ struct ContentView: View {
 
         // In single-page mode this is the final page. In spread mode the reader advances by two,
         // so the last visible spread begins two pages before the next chapter.
-        let lastVisibleStart = model.spreadEnabled ? next.index - 2 : next.index - 1
+        let lastVisibleStart = model.spreadEnabled
+            ? model.spreadStartIndex(for: next.index - 1)
+            : next.index - 1
         guard model.index >= lastVisibleStart else { return nil }
 
         return UpNextChapter(
@@ -820,6 +825,7 @@ struct ContentView: View {
             cache: thumbCache,
             showChapterMarkers: readerSettings.showChapterMarkers,
             chapterIndices: model.chapterEntries.map(\.index),
+            coverAloneInSpread: readerSettings.coverAloneInSpread,
             onSelect: { index in
                 model.goTo(index: index)
             }
@@ -837,6 +843,7 @@ struct ContentView: View {
                 cache: thumbCache,
                 showChapterMarkers: false,
                 chapterIndices: [],
+                coverAloneInSpread: readerSettings.coverAloneInSpread,
                 onSelect: { index in
                     model.goTo(index: range.start + index)
                 }

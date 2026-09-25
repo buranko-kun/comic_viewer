@@ -49,6 +49,8 @@ final class AppModel {
     func first() { reader.first() }
     func last() { reader.last() }
 
+    func setCoverAloneInSpread(_ enabled: Bool) { reader.setCoverAloneInSpread(enabled) }
+
     @discardableResult
     func toggleSpread() -> String { reader.toggleSpread() }
     func goTo(index: Int) { reader.goTo(index: index) }
@@ -61,6 +63,7 @@ final class AppModel {
     @discardableResult
     func prevChapter() -> String { reader.prevChapter() }
     func jumpToChapter(orderedIndex: Int) { reader.jumpToChapter(orderedIndex: orderedIndex) }
+    func spreadStartIndex(for index: Int) -> Int { reader.spreadStartIndex(for: index) }
     func renameChapter(atIndex i: Int, to name: String) { reader.renameChapter(atIndex: i, to: name) }
     func deleteChapter(atIndex i: Int) { reader.deleteChapter(atIndex: i) }
 

@@ -49,7 +49,7 @@ final class ReaderSessionTests: XCTestCase {
 
         XCTAssertEqual(message, "Two-page spread")
         XCTAssertTrue(session.spreadEnabled)
-        XCTAssertEqual(session.index, 0)
+        XCTAssertEqual(session.index, 1)
     }
 
     func testReaderPageSourceTypeDistinguishesRemoteAndLocal() {

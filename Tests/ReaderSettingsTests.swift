@@ -61,6 +61,28 @@ final class ReaderSettingsTests: XCTestCase {
         settings.showChapterMarkers = true
     }
 
+    func testSpreadSettingsPersistThroughUserDefaults() {
+        let settings = ReaderSettings.shared
+        let previousCover = settings.coverAloneInSpread
+        let previousGutter = settings.spreadGutter
+        defer {
+            settings.coverAloneInSpread = previousCover
+            settings.spreadGutter = previousGutter
+        }
+
+        settings.coverAloneInSpread = false
+        settings.spreadGutter = 24
+
+        XCTAssertEqual(
+            UserDefaults.standard.object(forKey: "reader.coverAloneInSpread") as? Bool,
+            false
+        )
+        XCTAssertEqual(
+            UserDefaults.standard.object(forKey: "reader.spreadGutter") as? Double,
+            24
+        )
+    }
+
     func testReadingDirectionPersistsThroughUserDefaults() {
         let settings = ReaderSettings.shared
         let previous = settings.readingDirection
