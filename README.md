@@ -62,3 +62,11 @@ log show --style compact --info \
 
 For interactive timing, open Instruments → Points of Interest and select the ComicViewer process.
 The `Reader Page Load` signposts can then be compared against cache/decode/archive/network events.
+
+
+## Source plugins
+
+The macOS Online browser supports installable JavaScript source plugins. A plugin can own its URL
+rules and DOM scraper, so new comic sites can be added without modifying or forking the app.
+
+See [SOURCE_PLUGINS.md](SOURCE_PLUGINS.md) and [examples/source-plugin-template.js](examples/source-plugin-template.js).
