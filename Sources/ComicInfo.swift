@@ -31,6 +31,8 @@ struct ComicInfo: Hashable, Codable {
     var teams: String?
     var manga: String?       // "Yes"/"YesAndRightToLeft" → RTL reading
     var pageCount: Int?
+    /// ComicVine volume ID used to refresh metadata without requiring another search.
+    var comicVineVolumeID: Int?
     var bookmarks: [Bookmark] = []
 
     struct Bookmark: Hashable, Codable { let imageIndex: Int; let name: String }
@@ -201,6 +203,7 @@ struct ComicInfo: Hashable, Codable {
         add("Genre", genre); add("Web", web); add("LanguageISO", languageISO)
         add("AgeRating", ageRating); add("Characters", characters); add("Teams", teams)
         addInt("PageCount", pageCount)
+        addInt("ComicViewerVolumeID", comicVineVolumeID)
         return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ComicInfo>\n\(el)</ComicInfo>\n"
     }
 
@@ -268,6 +271,7 @@ private final class ComicInfoParser: NSObject, XMLParserDelegate {
         case "Teams":       info.teams = v
         case "Manga":       info.manga = v
         case "PageCount":   info.pageCount = Int(v)
+        case "ComicViewerVolumeID": info.comicVineVolumeID = Int(v)
         default: break
         }
     }
