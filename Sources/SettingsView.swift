@@ -121,7 +121,7 @@ struct SettingsView: View {
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(plugin.name).fontWeight(.medium)
-                                        Text("(plugin.id) · v(plugin.version)")
+                                        Text("\(plugin.id) · v\(plugin.version)")
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                     }
@@ -132,10 +132,10 @@ struct SettingsView: View {
                                         Task {
                                             do {
                                                 let updated = try await plugins.update(plugin)
-                                                note = "Updated (updated.name) to v(updated.version)."
+                                                note = "Updated \(updated.name) to v\(updated.version)."
                                                 refresh()
                                             } catch {
-                                                note = "Couldn't update (plugin.name): (error.localizedDescription)"
+                                                note = "Couldn't update \(plugin.name): \(error.localizedDescription)"
                                             }
                                         }
                                     } label: {
@@ -242,6 +242,40 @@ struct SettingsView: View {
                 refresh()
             } catch {
                 note = "Couldn't install plugin: (error.localizedDescription)"
+            }
+        }
+    }
+
+    private func installPluginURL() {
+        guard let url = SourcePluginStore.makeURL(from: newPluginURL) else { return }
+        note = "Installing plugin…"
+        Task {
+            do {
+                let plugin = try await plugins.install(from: url)
+                newPluginURL = ""
+                note = "Installed \(plugin.name) v\(plugin.version)."
+                refresh()
+            } catch {
+                note = "Couldn't install plugin: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func installPluginFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "js") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let file = panel.url else { return }
+
+        note = "Installing plugin…"
+        Task {
+            do {
+                let plugin = try await plugins.install(localURL: file)
+                note = "Installed \(plugin.name) v\(plugin.version)."
+                refresh()
+            } catch {
+                note = "Couldn't install plugin: \(error.localizedDescription)"
             }
         }
     }
