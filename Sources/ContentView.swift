@@ -54,7 +54,19 @@ struct ContentView: View {
     @State private var thumbnailTask: Task<Void, Never>?
     private let thumbCache = ThumbnailCache.shared
 
-    var body: some View {
+    // End-of-chapter continuation card.
+    @State private var upNextThumbnail: CGImage?
+
+    private struct UpNextChapter: Hashable {
+        let ordinal: Int
+        let page: Int
+        let index: Int
+        let url: URL
+        let name: String
+    }
+
+    @ViewBuilder
+    private var readerContent: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
@@ -134,56 +146,132 @@ struct ContentView: View {
                     .foregroundStyle(.white.opacity(0.5))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Pinned to fixed window-relative points so they don't shift between images.
-        .overlay { pinnedOverlays }
-        .overlay { rotatedToRead { readingProgressBar } }
-        .overlay { if showChapterGrid { rotatedToRead { chapterGrid } } }
-        .overlay {
-            if router.showShortcuts {
-                rotatedToRead { ShortcutsOverlay { router.showShortcuts = false } }
+    }
+
+    var body: some View {
+        readerLifecycle
+    }
+
+    private var readerLifecycle: some View {
+        readerEvents
+            .onAppear(perform: handleReaderAppear)
+            .onDisappear(perform: handleReaderDisappear)
+            .onChange(of: model.current != nil) { _, _ in
+                handleCurrentChanged()
+            }
+            .onChange(of: model.openGeneration) { _, _ in
+                handleOpenGenerationChanged()
+            }
+            .onChange(of: model.renderTick) { _, _ in
+                handleRenderTick()
+            }
+            .onChange(of: model.spreadEnabled) { _, _ in
+                handleSpreadChanged()
+            }
+            .onChange(of: model.transientMessage) { _, message in
+                handleTransientMessage(message)
+            }
+            .onChange(of: model.chapters) { _, _ in
+                handleChaptersChanged()
+            }
+            .task(id: model.index) {
+                await preloadUpNextThumbnail()
+            }
+            .task {
+                preloadChapterThumbs()
+            }
+    }
+
+    private var readerEvents: some View {
+        readerSurface
+            .dropDestination(for: URL.self) { urls, _ in
+                handleDrop(urls)
+            }
+            .navigationTitle(model.currentName ?? "Comic Viewer")
+    }
+
+    private var readerSurface: some View {
+        readerContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { pinnedOverlays }
+            .overlay { rotatedToRead { readingProgressBar } }
+            .overlay { upNextOverlay }
+            .overlay { chapterGridOverlay }
+            .overlay { shortcutOverlay }
+    }
+
+    @ViewBuilder
+    private var chapterGridOverlay: some View {
+        if showChapterGrid {
+            rotatedToRead { chapterGrid }
+        }
+    }
+
+    private func handleReaderAppear() {
+        keyMonitor.start(key: handleKey, scroll: handleScroll)
+        updateReaderState()
+    }
+
+    private func handleReaderDisappear() {
+        keyMonitor.stop()
+        cursorHider.stop()
+        cancelTransientTasks()
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
+    }
+
+    private func handleCurrentChanged() {
+        updateReaderState()
+    }
+
+    private func handleOpenGenerationChanged() {
+        resetViewForNewComic()
+    }
+
+    private func handleRenderTick() {
+        applyFitMode(container: containerSize, animated: false)
+        flashCaption()
+    }
+
+    private func handleSpreadChanged() {
+        applyFitMode(container: containerSize, animated: false)
+    }
+
+    private func handleTransientMessage(_ message: String?) {
+        if let message {
+            flashToast(message)
+        }
+    }
+
+    private func handleChaptersChanged() {
+        preloadChapterThumbs()
+    }
+
+    @discardableResult
+    private func handleDrop(_ urls: [URL]) -> Bool {
+        model.open(urls: urls)
+        return true
+    }
+
+    private func shortcutOverlayContent() -> some View {
+        ShortcutsOverlay { router.showShortcuts = false }
+    }
+
+    @ViewBuilder
+    private var shortcutOverlay: some View {
+        if router.showShortcuts {
+            rotatedToRead {
+                shortcutOverlayContent()
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            model.open(urls: urls)
-            return true
+    }
+
+    private func preloadUpNextThumbnail() async {
+        guard let url = upNextChapter?.url else {
+            upNextThumbnail = nil
+            return
         }
-        .navigationTitle(model.currentName ?? "Comic Viewer")
-        .onAppear {
-            keyMonitor.start(key: handleKey, scroll: handleScroll)
-            updateReaderState()
-        }
-        .onDisappear {
-            keyMonitor.stop()
-            cursorHider.stop()
-            cancelTransientTasks()
-            thumbnailTask?.cancel()
-            thumbnailTask = nil
-        }
-        .onChange(of: model.current != nil) { _, _ in
-            updateReaderState()
-        }
-        .onChange(of: model.openGeneration) { _, _ in resetViewForNewComic() }
-        // Re-fit when the new page's image has actually decoded (index changes first), so a portrait
-        // page after a landscape one gets fit-to-screen, not the previous page's fit-to-width.
-        .onChange(of: model.renderTick) { _, _ in
-            applyFitMode(container: containerSize, animated: false)
-            flashCaption()
-        }
-        .onChange(of: model.spreadEnabled) { _, _ in
-            applyFitMode(container: containerSize, animated: false)
-        }
-        .onChange(of: model.transientMessage) { _, message in
-            if let message {
-                flashToast(message)
-            }
-        }
-        .onChange(of: model.chapters) { _, _ in
-            preloadChapterThumbs()
-        }
-        .task {
-            preloadChapterThumbs()
-        }
+        upNextThumbnail = await thumbCache.thumbnail(for: url, maxPixel: 240)
     }
 
     private func updateReaderState() {
@@ -597,6 +685,106 @@ struct ContentView: View {
     private let overlayMargin: CGFloat = 60
 
     /// A thin red bar pinned to the bottom edge in reading orientation.
+    private var upNextChapter: UpNextChapter? {
+        guard model.current != nil, !showChapterGrid, !router.showShortcuts else { return nil }
+
+        let entries = model.chapterEntries
+        guard entries.count > 1,
+              let currentOrdinal = entries.lastIndex(where: { $0.index <= model.index }),
+              entries.indices.contains(currentOrdinal + 1)
+        else { return nil }
+
+        let next = entries[currentOrdinal + 1]
+
+        // In single-page mode this is the final page. In spread mode the reader advances by two,
+        // so the last visible spread begins two pages before the next chapter.
+        let lastVisibleStart = model.spreadEnabled ? next.index - 2 : next.index - 1
+        guard model.index >= lastVisibleStart else { return nil }
+
+        return UpNextChapter(
+            ordinal: next.ordinal,
+            page: next.page,
+            index: next.index,
+            url: next.url,
+            name: next.name
+        )
+    }
+
+    @ViewBuilder
+    private var upNextOverlay: some View {
+        if let next = upNextChapter {
+            rotatedToRead {
+                VStack {
+                    Spacer()
+
+                    HStack {
+                        Spacer()
+
+                        Button {
+                            model.jumpToChapter(orderedIndex: next.ordinal - 1)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Group {
+                                    if let cg = upNextThumbnail {
+                                        Image(decorative: cg, scale: 1)
+                                            .resizable()
+                                            .interpolation(.medium)
+                                            .scaledToFill()
+                                    } else {
+                                        Image(systemName: "bookmark.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(.white.opacity(0.45))
+                                    }
+                                }
+                                .frame(width: 52, height: 74)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Up Next")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                        .textCase(.uppercase)
+
+                                    Text(next.name)
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                        .lineLimit(2)
+
+                                    Text("Chapter \(next.ordinal)  •  p.\(next.page)")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.55))
+
+                                    Label("Continue", systemImage: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.top, 2)
+                                }
+
+                                Image(systemName: "chevron.right")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.45))
+                                    .padding(.leading, 2)
+                            }
+                            .padding(14)
+                            .frame(width: 330, alignment: .leading)
+                            .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                            }
+                            .shadow(radius: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .pointingHandCursor()
+                    }
+                    .padding(.trailing, 58)
+                    .padding(.bottom, 78)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var readingProgressBar: some View {
         if model.current != nil, ReaderSettings.shared.showProgressBar {
@@ -606,7 +794,6 @@ struct ContentView: View {
                 PageScrubber(
                     urls: model.items,
                     currentIndex: model.index,
-                    chapters: model.chapterEntries,
                     spreadEnabled: model.spreadEnabled,
                     readingDirection: readerSettings.readingDirection,
                     cache: thumbCache,
@@ -677,7 +864,6 @@ struct ContentView: View {
         ChapterGridOverlay(
             entries: model.chapterEntries,
             currentIndex: model.index,
-            totalPageCount: model.items.count,
             cache: thumbCache,
             pageIndex: $chapterGridPage,
             onSelect: { index in
