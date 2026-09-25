@@ -18,8 +18,11 @@ final class ComicServer {
     private(set) var isRunning = false
     private(set) var port = 0
     private(set) var addresses: [String] = []     // LAN IPv4 addresses, for display
-    let pairingCode: String
+    private(set) var pairingCode: String
 
+    /// Session credentials issued after pairing. Storage is thread-safe because HTTP middleware
+    /// executes off the main actor.
+    private let authStore = ComicServerAuth()
     private var server: HttpServer?
     private var net: NetService?
 
@@ -30,10 +33,31 @@ final class ComicServer {
         if let c = UserDefaults.standard.string(forKey: Self.codeKey) {
             pairingCode = c
         } else {
-            let c = String(format: "%06d", Int.random(in: 0...999_999))
+            let c = Self.makePairingCode()
             UserDefaults.standard.set(c, forKey: Self.codeKey)
             pairingCode = c
         }
+    }
+
+    /// Exchange the human pairing code for a random session token.
+    func issueSessionToken(for code: String) -> String? {
+        guard code == pairingCode else { return nil }
+        return authStore.issueToken()
+    }
+
+    /// Generate a new pairing code and invalidate all currently paired devices.
+    func regeneratePairingCode() {
+        pairingCode = Self.makePairingCode()
+        UserDefaults.standard.set(pairingCode, forKey: Self.codeKey)
+        authStore.invalidateAll()
+        if isRunning {
+            stop()
+            start()
+        }
+    }
+
+    private static func makePairingCode() -> String {
+        String(format: "%06d", Int.random(in: 0...999_999))
     }
 
     /// Whether sharing is on. Setting it persists the choice and starts/stops the server. (The
@@ -56,18 +80,20 @@ final class ComicServer {
         guard !isRunning else { return }
         let s = HttpServer()
         let code = pairingCode
+        let authStore = self.authStore
 
-        // Auth: everything under /api and /opds (except ping) needs the pairing code — as an
-        // `X-Comic-Auth` header, a `?code=` query param (used by OPDS hrefs + images), or HTTP
-        // Basic Auth with the code as the password (what OPDS readers prompt for).
+        // Ping and pairing are public. Normal API calls accept an issued session token.
+        // Query code and HTTP Basic remain supported for OPDS and external readers.
         s.middleware.append { req in
             let p = req.path
-            if p == "/api/ping" { return nil }
+            if p == "/api/ping" || p == "/api/pair" { return nil }
             if !p.hasPrefix("/api") && !p.hasPrefix("/opds") { return nil }
             let header = req.headers["x-comic-auth"]
+            let tokenQuery = req.queryParams.first { $0.0 == "token" }?.1
             let query = req.queryParams.first { $0.0 == "code" }?.1
             let basic = Self.basicAuthPassword(req.headers["authorization"])
-            let ok = header == code || query == code || basic == code
+            let ok = authStore.contains(header) || authStore.contains(tokenQuery)
+                || query == code || basic == code
             return ok ? nil : .raw(401, "Unauthorized",
                                    ["WWW-Authenticate": "Basic realm=\"Comic Viewer\""], nil)
         }
@@ -91,6 +117,7 @@ final class ComicServer {
     func stop() {
         server?.stop(); server = nil
         net?.stop(); net = nil
+        authStore.invalidateAll()
         PageIndex.shared.clear()
         CBZBuilder.shared.clear()
         isRunning = false
@@ -139,4 +166,33 @@ final class ComicServer {
         }
         return result
     }
+
+    /// Thread-safe in-memory session tokens. Tokens are intentionally ephemeral: stopping the LAN
+/// server, regenerating the pairing code, or quitting the app invalidates every paired device.
+private final class ComicServerAuth {
+    private let lock = NSLock()
+    private var tokens = Set<String>()
+
+    func issueToken() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        tokens.insert(token)
+        return token
+    }
+
+    func contains(_ token: String?) -> Bool {
+        guard let token else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        return tokens.contains(token)
+    }
+
+    func invalidateAll() {
+        lock.lock()
+        tokens.removeAll()
+        lock.unlock()
+    }
+}
+
 }

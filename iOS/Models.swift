@@ -49,3 +49,10 @@ struct CollectionEntry: Codable, Identifiable, Hashable {
     let comicId: String?      // set for library items → openable/readable
     let mustRead: Bool?
 }
+
+/// Response returned by the desktop when the human pairing code is accepted.
+struct PairingResponse: Codable {
+    let token: String
+    let name: String
+    let version: String
+}

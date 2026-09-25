@@ -6,22 +6,25 @@ import SwiftUI
 @MainActor
 @Observable
 final class ServerConnection {
-    var host: String { didSet { save() } }
-    var port: Int { didSet { save() } }
-    var code: String { didSet { save() } }
-    /// True once we've had a successful ping with the current settings.
+    var host: String { didSet { save(); invalidateConnection() } }
+    var port: Int { didSet { save(); invalidateConnection() } }
+    var code: String { didSet { save(); invalidateConnection() } }
+    private var token: String { didSet { save() } }
+    /// True once we've had a successful authenticated connection with the current settings.
     private(set) var isConnected = false
     private(set) var lastError: String?
 
     private static let hostKey = "conn.host"
     private static let portKey = "conn.port"
     private static let codeKey = "conn.code"
+    private static let tokenKey = "conn.token"
 
     init() {
         let d = UserDefaults.standard
         host = d.string(forKey: Self.hostKey) ?? ""
         port = d.integer(forKey: Self.portKey) == 0 ? 8080 : d.integer(forKey: Self.portKey)
         code = d.string(forKey: Self.codeKey) ?? ""
+        token = d.string(forKey: Self.tokenKey) ?? ""
     }
 
     private func save() {
@@ -29,6 +32,12 @@ final class ServerConnection {
         d.set(host, forKey: Self.hostKey)
         d.set(port, forKey: Self.portKey)
         d.set(code, forKey: Self.codeKey)
+        d.set(token, forKey: Self.tokenKey)
+    }
+
+    private func invalidateConnection() {
+        token = ""
+        isConnected = false
     }
 
     var baseURL: URL? {
@@ -36,23 +45,48 @@ final class ServerConnection {
         return URL(string: "http://\(host):\(port)")
     }
 
-    var client: ServerClient? { baseURL.map { ServerClient(baseURL: $0, code: code) } }
+    var client: ServerClient? { baseURL.map { ServerClient(baseURL: $0, code: code, token: token.isEmpty ? nil : token) } }
 
-    /// Verify the server is reachable and the pairing code is accepted.
+    /// Verify reachability, then authenticate. A saved session token is tried first; if the
+    /// desktop restarted and discarded it, the code is exchanged for a fresh token automatically.
     func connect() async {
         lastError = nil
-        guard let client else { lastError = "Enter a server address."; return }
-        guard await client.ping() != nil else {
-            isConnected = false; lastError = "Couldn't reach the server."; return
+        isConnected = false
+        guard !host.isEmpty else { lastError = "Enter a server address."; return }
+        guard !code.isEmpty else { lastError = "Enter the pairing code."; return }
+        guard let baseURL else { lastError = "Enter a server address."; return }
+
+        let probe = ServerClient(baseURL: baseURL, code: code)
+        guard await probe.ping() != nil else {
+            lastError = "Couldn't reach the server."
+            return
         }
-        // Ping needs no auth; confirm the code by hitting an authed endpoint.
+
+        if !token.isEmpty {
+            let savedClient = ServerClient(baseURL: baseURL, code: code, token: token)
+            do {
+                _ = try await savedClient.library(dir: nil)
+                isConnected = true
+                return
+            } catch ServerClient.ClientError.unauthorized {
+                token = ""
+            } catch {
+                // The server may have restarted or briefly failed. Re-pair below if possible.
+            }
+        }
+
         do {
-            _ = try await client.library(dir: nil)
+            let response = try await probe.pair()
+            token = response.token
+            let authed = ServerClient(baseURL: baseURL, code: code, token: token)
+            _ = try await authed.library(dir: nil)
             isConnected = true
         } catch ServerClient.ClientError.unauthorized {
-            isConnected = false; lastError = "Wrong pairing code."
+            token = ""
+            lastError = "Wrong pairing code."
         } catch {
-            isConnected = false; lastError = "Couldn't load the library."
+            token = ""
+            lastError = "Couldn't load the library."
         }
     }
 

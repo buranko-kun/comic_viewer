@@ -16,6 +16,25 @@ enum ComicServerAPI {
             jsonResponse(["name": ComicServer.appName, "version": ComicServer.version])
         }
 
+        s.POST["/api/pair"] = { req in
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(req.body)) as? [String: Any],
+                  let code = obj["code"] as? String else {
+                return .raw(400, "Bad Request", nil, nil)
+            }
+            guard let token = onMainSync({
+                ComicServer.shared.issueSessionToken(
+                    for: code.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }) else {
+                return .raw(401, "Unauthorized", nil, nil)
+            }
+            return jsonResponse([
+                "token": token,
+                "name": ComicServer.appName,
+                "version": ComicServer.version
+            ])
+        }
+
         s["/api/library"] = { req in
             let dir = req.queryParams.first { $0.0 == "dir" }?.1
             guard let json = onMainSync({ libraryJSON(dirToken: dir) }) else { return .raw(404, "Not Found", nil, nil) }

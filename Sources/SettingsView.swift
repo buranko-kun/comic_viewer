@@ -600,6 +600,9 @@ private struct SharingTab: View {
                             }
                         }
                         row("Pairing code", server.pairingCode)
+                        Text("Pair once from the iPhone. It then uses a private session token instead of sending this code on every API request.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text("Running on port \(server.port).")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -610,6 +613,19 @@ private struct SharingTab: View {
                             Text("Scan to connect").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        server.regeneratePairingCode()
+                    } label: {
+                        Label("Regenerate Pairing Code", systemImage: "key.horizontal")
+                    }
+                    .pointingHandCursor()
+
+                    Text("This disconnects all paired devices.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             } else {
                 Text("Sharing is off.").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
