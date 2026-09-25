@@ -20,6 +20,7 @@ struct LibraryView: View {
     // Chapter rename dialog (the chapter being renamed + working text).
     @State private var renamingChapter: ChapterRef?
     @State private var chapterRenameText = ""
+    @State private var historyRefresh = 0
 
     private var isPortrait: Bool { router.libraryPortrait }
 
@@ -77,6 +78,7 @@ struct LibraryView: View {
             keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
         }
         .onDisappear { keyMonitor.stop() }
+        .onAppear { historyRefresh += 1 }
         .task(id: router.selectedComic?.id) { await loadChapters() }
     }
 
@@ -107,9 +109,11 @@ struct LibraryView: View {
         let entries = library.entries(at: router.currentDir)
         let atHome = router.currentDir == nil
         let recents = atHome ? library.continueReading : []
+        let recentlyRead = atHome ? library.recentlyRead : []
         let cols = atHome ? store.collections.filter { !$0.items.isEmpty } : []
-        let hasShelves = !recents.isEmpty || !cols.isEmpty
-        return comicGrid(header: hasShelves ? AnyView(homeHeader(recents, cols)) : nil) {
+        let hasShelves = !recents.isEmpty || !recentlyRead.isEmpty || !cols.isEmpty
+        let _ = historyRefresh
+        return comicGrid(header: hasShelves ? AnyView(homeHeader(recents, recentlyRead, cols)) : nil) {
             ForEach(entries.groups) { group in
                 GroupCard(group: group, cache: coverCache) { router.openGroup(group) }
             }
@@ -123,11 +127,19 @@ struct LibraryView: View {
 
     /// Home shelves: "Continue Reading", then one horizontal shelf per collection, then a
     /// "Library" heading above the folder grid. All cards match the library's cover size.
-    private func homeHeader(_ recents: [Comic], _ cols: [Collection]) -> some View {
+    private func homeHeader(_ recents: [Comic], _ recent: [Comic], _ cols: [Collection]) -> some View {
         VStack(alignment: .leading, spacing: 26) {
             if !recents.isEmpty {
                 shelf(title: "Continue Reading") {
                     ForEach(recents) { comic in
+                        ContinueCard(comic: comic, cache: coverCache) { router.openFromShelf(comic) }
+                            .contextMenu { comicMenu(comic) }
+                    }
+                }
+            }
+            if !recent.isEmpty {
+                shelf(title: "Recently Read") {
+                    ForEach(recent) { comic in
                         ContinueCard(comic: comic, cache: coverCache) { router.openFromShelf(comic) }
                             .contextMenu { comicMenu(comic) }
                     }
