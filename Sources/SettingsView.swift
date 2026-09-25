@@ -6,7 +6,9 @@ import UniformTypeIdentifiers
 /// server URL, import a `.txt` of URLs, or remove sources. Changes re-query the servers.
 struct SettingsView: View {
     private let sources = CatalogSourceStore.shared
+    private let plugins = SourcePluginStore.shared
     @State private var newURL = ""
+    @State private var newPluginURL = ""
     @State private var note: String?
 
     var body: some View {
@@ -32,49 +34,162 @@ struct SettingsView: View {
     }
 
     private var sourcesTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Catalog sources").font(.headline)
-            Text("Each source is a URL to a JSON catalog (or OPDS feed) on your server. The app "
-                 + "fetches them, normalizes the data, and shows the comics in the Online section.")
-                .font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Catalog sources").font(.headline)
+                        Text("JSON catalogs and OPDS feeds. These are data sources; scraper code is not installed.")
+                            .font(.caption).foregroundStyle(.secondary)
 
-            List {
-                if sources.sources.isEmpty {
-                    Text("No sources yet.").foregroundStyle(.secondary)
-                }
-                ForEach(sources.sources) { source in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(source.name).fontWeight(.medium)
-                            Text(source.url.absoluteString).font(.caption).foregroundStyle(.secondary)
-                                .lineLimit(1).truncationMode(.middle)
+                        if sources.sources.isEmpty {
+                            Text("No catalog sources yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(sources.sources) { source in
+                                HStack(spacing: 10) {
+                                    Image(systemName: "externaldrive.connected.to.line.below")
+                                        .foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(source.name).fontWeight(.medium)
+                                        Text(source.url.absoluteString)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    Spacer()
+                                    Button(role: .destructive) { remove(source) } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
                         }
-                        Spacer()
-                        Button(role: .destructive) { remove(source) } label: { Image(systemName: "trash") }
-                            .buttonStyle(.borderless)
+
+                        HStack {
+                            TextField("https://server.example/catalog.json", text: $newURL)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit(addTyped)
+                            Button("Add", action: addTyped)
+                                .disabled(CatalogSourceStore.makeURL(from: newURL) == nil)
+                        }
+
+                        HStack {
+                            Button { importTxt() } label: {
+                                Label("Import from .txt…", systemImage: "square.and.arrow.down")
+                            }
+                            Spacer()
+                        }
+
+                        Text("One URL per line. Lines starting with # are ignored; “Name | URL” is also supported.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(4)
+                }
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Source plugins").font(.headline)
+                        Text("Install third-party JavaScript scrapers without rebuilding or forking Comic Viewer.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        if plugins.plugins.isEmpty {
+                            Text("No source plugins installed.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(plugins.plugins) { plugin in
+                                HStack(spacing: 10) {
+                                    Toggle(
+                                        "",
+                                        isOn: Binding(
+                                            get: {
+                                                plugins.plugins.first(where: { $0.id == plugin.id })?.enabled ?? false
+                                            },
+                                            set: { value in
+                                                plugins.setEnabled(plugin.id, enabled: value)
+                                                refresh()
+                                            }
+                                        )
+                                    )
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(plugin.name).fontWeight(.medium)
+                                        Text("\(plugin.id) · v\(plugin.version)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Button {
+                                        Task {
+                                            do {
+                                                let updated = try await plugins.update(plugin)
+                                                note = "Updated \(updated.name) to v\(updated.version)."
+                                                refresh()
+                                            } catch {
+                                                note = "Couldn't update \(plugin.name): \(error.localizedDescription)"
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "arrow.clockwise")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Update plugin")
+
+                                    Button(role: .destructive) {
+                                        plugins.remove(plugin)
+                                        refresh()
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Remove plugin")
+                                }
+                            }
+                        }
+
+                        HStack {
+                            TextField(
+                                "https://github.com/user/repo/blob/main/source.js",
+                                text: $newPluginURL
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(installPluginURL)
+
+                            Button("Install", action: installPluginURL)
+                                .disabled(SourcePluginStore.makeURL(from: newPluginURL) == nil)
+                        }
+
+                        HStack {
+                            Button { installPluginFile() } label: {
+                                Label("Install local .js…", systemImage: "doc.badge.plus")
+                            }
+                            Spacer()
+                            if let note {
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        Text("Plugins run as web JavaScript. Only install code you trust.")
+                            .font(.caption2)
+                            .foregroundStyle(.orange.opacity(0.9))
+                    }
+                    .padding(4)
                 }
             }
-            .frame(minHeight: 180)
-
-            HStack {
-                TextField("https://your-server/catalog.json  or  /path/to/index.json", text: $newURL)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addTyped)
-                Button("Add", action: addTyped)
-                    .disabled(CatalogSourceStore.makeURL(from: newURL) == nil)
-            }
-
-            HStack {
-                Button { importTxt() } label: { Label("Import from .txt…", systemImage: "square.and.arrow.down") }
-                Spacer()
-                if let note { Text(note).font(.caption).foregroundStyle(.secondary) }
-            }
-            Text("The .txt lists one URL per line. Lines starting with # are ignored; an optional "
-                 + "“Name | URL” sets a custom label.")
-                .font(.caption2).foregroundStyle(.secondary)
+            .padding(20)
         }
-        .padding(20)
     }
 
     // MARK: Actions
@@ -97,7 +212,40 @@ struct SettingsView: View {
         if added > 0 { refresh() }
     }
 
-    /// Re-query servers so the Online section reflects the change.
+    private func installPluginURL() {
+        guard let url = SourcePluginStore.makeURL(from: newPluginURL) else { return }
+        note = "Installing plugin…"
+        Task {
+            do {
+                let plugin = try await plugins.install(from: url)
+                newPluginURL = ""
+                note = "Installed \(plugin.name) v\(plugin.version)."
+                refresh()
+            } catch {
+                note = "Couldn't install plugin: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func installPluginFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "js") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let file = panel.url else { return }
+
+        note = "Installing plugin…"
+        Task {
+            do {
+                let plugin = try await plugins.install(localURL: file)
+                note = "Installed \(plugin.name) v\(plugin.version)."
+                refresh()
+            } catch {
+                note = "Couldn't install plugin: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func refresh() { Task { await CatalogAggregator.shared.loadRoots() } }
 }
 
