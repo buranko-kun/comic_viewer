@@ -308,6 +308,11 @@ final class ReaderSession {
         navigation.readingProgress
     }
 
+    /// First logical page of the visible spread containing an index.
+    func spreadStartIndex(for index: Int) -> Int {
+        navigation.spreadStartIndex(for: index)
+    }
+
     @discardableResult
     func toggleChapter() -> String {
         let message = navigation.toggleChapter()

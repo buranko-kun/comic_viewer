@@ -17,6 +17,8 @@ struct SettingsView: View {
                 .tabItem { Label("Sources", systemImage: "externaldrive.connected.to.line.below") }
             LibraryTab()
                 .tabItem { Label("Library", systemImage: "books.vertical") }
+            ReadingStateBackupTab()
+                .tabItem { Label("Backup", systemImage: "arrow.up.arrow.down") }
             DownloadsSettingsTab()
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
             ConnectTab()
@@ -198,6 +200,144 @@ private struct ReaderTab: View {
             }
             .padding(20)
         }
+    }
+}
+
+
+/// Preferences → Backup: export/import the per-comic reading state stored by ComicViewer.
+private struct ReadingStateBackupTab: View {
+    @State private var note: String?
+    @State private var showImportConfirmation = false
+    @State private var pendingPlan: ReadingStateBackup.ImportPlan?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Reading state").font(.headline)
+
+            Text("Back up reading progress, manual chapter markers and names, and reading timestamps. "
+                 + "Comic files are never copied. Reader display settings are not included.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button {
+                    exportBackup()
+                } label: {
+                    Label("Export…", systemImage: "square.and.arrow.up")
+                }
+                .pointingHandCursor()
+
+                Button {
+                    importBackup()
+                } label: {
+                    Label("Import…", systemImage: "square.and.arrow.down")
+                }
+                .pointingHandCursor()
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Portable across library moves", systemImage: "folder.badge.gearshape")
+                    .font(.body.weight(.medium))
+                Text("Exact comic paths are matched first. When a library root has moved, the backup "
+                     + "uses the comic's relative path under the old root to find its new location.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(20)
+        .alert("Import Reading State?", isPresented: $showImportConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingPlan = nil
+            }
+            Button("Import & Replace") {
+                applyPendingImport()
+            }
+        } message: {
+            Text(importConfirmationMessage)
+        }
+    }
+
+    private var importConfirmationMessage: String {
+        guard let plan = pendingPlan else { return "" }
+
+        var lines = [
+            "\(plan.items.count) saved comic state\(plan.items.count == 1 ? "" : "s") will be imported.",
+            "Existing reading state for those comics will be replaced."
+        ]
+
+        if plan.remappedCount > 0 {
+            lines.append("\(plan.remappedCount) will be remapped to the current library roots.")
+        }
+        if plan.ambiguous.count > 0 {
+            lines.append("\(plan.ambiguous.count) will be skipped because multiple current paths matched.")
+        }
+        if plan.duplicateDestinations > 0 {
+            lines.append("\(plan.duplicateDestinations) duplicate destination\(plan.duplicateDestinations == 1 ? "" : "s") will be skipped.")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func exportBackup() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "ComicViewer Reading State.json"
+        panel.prompt = "Export"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let backup = ReadingStateBackup.makeExport()
+            let data = try ReadingStateBackup.encode(backup)
+            try data.write(to: url, options: .atomic)
+
+            let count = backup.entries.count
+            note = "Exported \(count) saved comic state\(count == 1 ? "" : "s")."
+        } catch {
+            note = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func importBackup() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let backup = try ReadingStateBackup.decode(data)
+            pendingPlan = ReadingStateBackup.makeImportPlan(
+                backup: backup,
+                currentLibraryRoots: LibraryModel.shared.folders
+            )
+            showImportConfirmation = true
+        } catch {
+            note = "Import failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func applyPendingImport() {
+        guard let pendingPlan else { return }
+        let result = ReadingStateBackup.apply(pendingPlan)
+        self.pendingPlan = nil
+        note = result.message
+        LibraryModel.shared.rescan()
     }
 }
 
