@@ -290,14 +290,14 @@ struct SmartCollectionItemsView: View {
                                     NSWorkspace.shared.activateFileViewerSelecting([comic.url])
                                 }
                             }
-                            }
                         }
-                        .padding(.horizontal, GridStyle.hPadding)
-                        .padding(.top, 24)
-                        .padding(.bottom, 24)
                     }
+                    .padding(.horizontal, GridStyle.hPadding)
+                    .padding(.top, 24)
+                    .padding(.bottom, 24)
                 }
             }
+        }
         }
         .onAppear {
             library.rescan()

@@ -19,7 +19,7 @@ enum ComicVine {
         case noKey, http(Int), api(String), decode
         var errorDescription: String? {
             switch self {
-            case .noKey:        return "Add a ComicVine API key in Settings → Metadata."
+            case .noKey:        return "Add a ComicVine API key in Settings → Library."
             case .http(let c):  return "ComicVine returned HTTP \(c)."
             case .api(let m):   return "ComicVine: \(m)."
             case .decode:       return "Couldn't read the ComicVine response."
@@ -75,6 +75,7 @@ enum ComicVine {
         guard let r = json["results"] as? [String: Any] else { throw CVError.decode }
 
         var info = ComicInfo()
+        info.comicVineVolumeID = id
         info.series = r["name"] as? String
         info.title = info.series
         info.year = (r["start_year"] as? String) ?? (r["start_year"] as? Int).map(String.init)

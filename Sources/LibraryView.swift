@@ -887,14 +887,19 @@ private struct ComicDetailPopover: View {
     let comic: Comic
     @State private var info: ComicInfo?
     @State private var loading = true
+    @State private var refreshing = false
     @State private var showFetch = false
+    @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(info?.displayTitle ?? comic.title).font(.headline)
                 .fixedSize(horizontal: false, vertical: true)
             if loading {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Reading metadata…").font(.caption).foregroundStyle(.secondary) }
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading metadata…").font(.caption).foregroundStyle(.secondary)
+                }
             } else if let info, !info.metadataRows.isEmpty || info.summary != nil {
                 if !info.metadataRows.isEmpty {
                     Divider()
@@ -909,19 +914,42 @@ private struct ComicDetailPopover: View {
                 }
                 if let sum = info.summary, !sum.isEmpty {
                     Divider()
-                    ScrollView { Text(sum).font(.callout).frame(maxWidth: .infinity, alignment: .leading) }
-                        .frame(maxHeight: 180)
+                    ScrollView {
+                        Text(sum).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 180)
                 }
             } else {
                 Text("No embedded metadata.").font(.caption).foregroundStyle(.secondary)
             }
+
+            if let error, !error.isEmpty {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if !loading {
                 Divider()
-                Button {
-                    showFetch = true
-                } label: {
-                    Label(info == nil ? "Fetch metadata online" : "Update metadata online",
-                          systemImage: "arrow.down.doc")
+                HStack {
+                    if info?.comicVineVolumeID != nil {
+                        Button {
+                            Task { await refreshLinkedMetadata() }
+                        } label: {
+                            Label(refreshing ? "Refreshing…" : "Refresh metadata",
+                                  systemImage: "arrow.clockwise")
+                        }
+                        .disabled(!ComicVine.hasKey || refreshing)
+                    } else {
+                        Button {
+                            showFetch = true
+                        } label: {
+                            Label(info == nil ? "Fetch metadata online" : "Update metadata online",
+                                  systemImage: "arrow.down.doc")
+                        }
+                    }
+                    Spacer()
                 }
                 .controlSize(.small)
             }
@@ -935,9 +963,26 @@ private struct ComicDetailPopover: View {
 
     private func reload() async {
         loading = true
+        error = nil
         let isArchive = comic.isArchive, url = comic.url
-        info = await Task.detached { ComicInfo.load(forComic: url, isArchive: isArchive) }.value
+        info = await Task.detached {
+            ComicInfo.load(forComic: url, isArchive: isArchive)
+        }.value
         loading = false
+    }
+
+    private func refreshLinkedMetadata() async {
+        guard !refreshing else { return }
+        refreshing = true
+        error = nil
+        defer { refreshing = false }
+
+        do {
+            _ = try await MetadataRefresh.refresh(comic)
+            await reload()
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Refresh failed."
+        }
     }
 }
 
@@ -957,7 +1002,7 @@ private struct MetadataFetchSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Fetch metadata").font(.headline)
             if !ComicVine.hasKey {
-                Text("Add a ComicVine API key in Settings → Metadata first.")
+                Text("Add a ComicVine API key in Settings → Library first.")
                     .font(.callout).foregroundStyle(.orange)
             }
             HStack {

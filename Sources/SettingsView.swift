@@ -345,6 +345,7 @@ private struct ReadingStateBackupTab: View {
 private struct LibraryTab: View {
     @State private var library = LibraryModel.shared
     @State private var comicVineKey = ComicVine.apiKey
+    @State private var metadataRefresh = MetadataRefreshCoordinator.shared
 
     private var archiveCount: Int { library.comics.filter(\.isArchive).count }
 
@@ -418,6 +419,40 @@ private struct LibraryTab: View {
                 Image(systemName: ComicVine.hasKey ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(ComicVine.hasKey ? .green : .secondary)
             }
+
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Refresh saved metadata").font(.headline)
+                    Text("Refreshes comics already linked to a ComicVine volume. Comics without a saved link are left untouched.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button {
+                    metadataRefresh.refreshKnownMetadata()
+                } label: {
+                    Label("Refresh Known", systemImage: "arrow.clockwise")
+                }
+                .disabled(!ComicVine.hasKey || metadataRefresh.isRunning)
+                .pointingHandCursor()
+            }
+
+            if metadataRefresh.isRunning {
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: Double(metadataRefresh.completed),
+                                 total: Double(max(metadataRefresh.total, 1)))
+                    Text(metadataRefresh.summary + (metadataRefresh.currentTitle.map { " · \($0)" } ?? ""))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            } else if !metadataRefresh.summary.isEmpty {
+                Text(metadataRefresh.summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
         }
         .padding(20)
