@@ -5,6 +5,12 @@ import AppKit
 /// grouped into series sections. Clicking a cover opens the reader (via `onOpen`). Rendered
 /// in the reading orientation (portrait by default) to match the reader's overlays.
 struct LibraryView: View {
+    let localOnly: Bool
+
+    init(localOnly: Bool = false) {
+        self.localOnly = localOnly
+    }
+
     @Environment(LibraryModel.self) private var library
     @Environment(AppRouter.self) private var router
 
@@ -21,6 +27,7 @@ struct LibraryView: View {
     @State private var renamingChapter: ChapterRef?
     @State private var chapterRenameText = ""
     @State private var historyRefresh = 0
+    @State private var onlineSearchText = ""
 
     private var isPortrait: Bool { router.libraryPortrait }
 
@@ -98,9 +105,28 @@ struct LibraryView: View {
             emptyScan
         } else if let comic = router.selectedComic {
             chapterGrid(comic: comic)
+        } else if localOnly {
+            localGrid
         } else {
             folderGrid
         }
+    }
+
+    /// Flat local-library destination: every downloaded/on-disk comic, without Home shelves or
+    /// the folder hierarchy. This is the explicit Local section in the app chrome.
+    private var localGrid: some View {
+        let comics = library.comics.sorted {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+        return comicGrid {
+            ForEach(comics) { comic in
+                CoverCell(comic: comic, cache: coverCache) {
+                    router.openIssue(comic, origin: .local)
+                }
+                .contextMenu { comicMenu(comic) }
+            }
+        }
+        .overlay(alignment: .top) { localToolbar }
     }
 
     /// The current folder level: sub-folder groups (series / sub-series) to drill into,
@@ -275,6 +301,9 @@ struct LibraryView: View {
             Text("Home").font(.headline).foregroundStyle(.white)
             Spacer()
             if library.isScanning { ProgressView().controlSize(.small) }
+            onlineSearchField
+            Button { router.showLocal() } label: { Label("Local", systemImage: "internaldrive") }
+                .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
             Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
                 .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
             Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
@@ -286,6 +315,47 @@ struct LibraryView: View {
         .tint(.white)
         .padding(.horizontal, 30)
         .padding(.vertical, 10)
+        .background(Color.black)
+        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
+    }
+
+    /// Compact Home search field. Press Return to open the unified Online search results.
+    private var onlineSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
+            TextField("Search Online", text: $onlineSearchText)
+                .textFieldStyle(.plain).frame(width: 190)
+                .onSubmit { router.showOnlineSearch(query: onlineSearchText) }
+            if !onlineSearchText.isEmpty {
+                Button { onlineSearchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.45))
+                }
+                .buttonStyle(.plain).pointingHandCursor()
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(.white.opacity(0.08), in: Capsule())
+    }
+
+    /// Toolbar for the explicit Local destination.
+    private var localToolbar: some View {
+        HStack(spacing: 14) {
+            Button { router.showLibrary() } label: { Label("Home", systemImage: "chevron.left") }
+                .pointingHandCursor()
+            Text("Local").font(.headline).foregroundStyle(.white)
+            Text("\(library.comics.count) comics")
+                .font(.caption2).foregroundStyle(.white.opacity(0.5))
+            Spacer()
+            Button { router.showOnlineSearch() } label: { Label("Search", systemImage: "magnifyingglass") }
+                .labelStyle(.iconOnly).help("Search Online").pointingHandCursor()
+            Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
+                .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
+            Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
+                .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
+        }
+        .buttonStyle(.borderless)
+        .tint(.white)
+        .padding(.horizontal, 30).padding(.vertical, 10)
         .background(Color.black)
         .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
     }
@@ -348,10 +418,10 @@ struct LibraryView: View {
             }
             Spacer()
             if comic.progress != nil {
-                Button { router.openComic(comic) } label: { Label("Continue", systemImage: "book") }
+                Button { router.openComic(comic, origin: router.selectedComicOrigin) } label: { Label("Continue", systemImage: "book") }
                     .pointingHandCursor()
             } else {
-                Button { router.openComic(comic) } label: { Label("Read", systemImage: "book") }
+                Button { router.openComic(comic, origin: router.selectedComicOrigin) } label: { Label("Read", systemImage: "book") }
                     .pointingHandCursor()
             }
         }

@@ -7,7 +7,7 @@ import AppKit
 final class AppRouter {
     static let shared = AppRouter()
 
-    enum Route { case library, reader, browse, collections, readcomics }
+    enum Route { case library, local, onlineSearch, reader, browse, collections, readcomics }
     var route: Route = .library
     /// Global "Keyboard Shortcuts" overlay toggle (menu ⌘/, or ? in the reader).
     var showShortcuts = false
@@ -22,6 +22,8 @@ final class AppRouter {
     var path: [URL] = []
     /// When set, the library shows the chapters of this comic (chapter level).
     var selectedComic: Comic?
+    /// Where the currently selected comic was opened from before entering its chapter grid.
+    private(set) var selectedComicOrigin: ReaderOrigin = .home
 
     /// ReadComicsOnline navigation, kept on the router so it survives leaving for the reader and
     /// coming back. `readComicsSeries` is the drilled-in series (nil = the directory grid).
@@ -32,6 +34,7 @@ final class AppRouter {
     enum ReaderOrigin {
         case home                       // default: back to the Home library
         case library(path: [URL])       // restore this drilled library folder (a local comic's series)
+        case local                       // restore the flat local library
         case readComics(CatalogEntry)   // restore this ReadComicsOnline series' issue list
     }
     var readerOrigin: ReaderOrigin = .home
@@ -46,19 +49,26 @@ final class AppRouter {
     }
 
     /// Open an issue: if it has chapters, drill into the chapter level; otherwise read it.
-    func openIssue(_ comic: Comic) {
-        if comic.chapterCount > 0 { selectedComic = comic }
-        else { openComic(comic) }
+    func openIssue(_ comic: Comic, origin: ReaderOrigin = .home) {
+        if comic.chapterCount > 0 {
+            selectedComic = comic
+            selectedComicOrigin = origin
+        } else {
+            openComic(comic, origin: origin)
+        }
     }
 
     /// Back out of the chapter level to the folder listing.
-    func closeComic() { selectedComic = nil }
+    func closeComic() {
+        selectedComic = nil
+        selectedComicOrigin = .home
+    }
 
     /// Open a comic (issue) from the library in the reader (resumes at last page). By default Escape
     /// returns to wherever the library currently is (`.home`); callers that open from a context-less
     /// place (a Home shelf) set `readerOrigin` afterwards via `openFromShelf`.
-    func openComic(_ comic: Comic) {
-        readerOrigin = .home
+    func openComic(_ comic: Comic, origin: ReaderOrigin = .home) {
+        readerOrigin = origin
         if comic.isRemote { AppModel.shared.openRemote(comic) }   // web comic / series issue
         else { AppModel.shared.open(urls: [comic.url]) }
         route = .reader
@@ -92,7 +102,7 @@ final class AppRouter {
     /// last-read page falls inside the chapter). Passing the index into `open` makes it survive an
     /// archive's asynchronous extraction (a follow-up `goTo` would run before the pages exist).
     func openChapter(in comic: Comic, at index: Int) {
-        readerOrigin = .home
+        readerOrigin = selectedComicOrigin
         AppModel.shared.open(urls: [comic.url], startIndex: index)
         route = .reader
     }
@@ -108,6 +118,20 @@ final class AppRouter {
     func showLibrary() {
         route = .library
         LibraryModel.shared.rescan()
+    }
+
+    /// Open the flat local-library view without Home shelves.
+    func showLocal() {
+        selectedComic = nil
+        selectedComicOrigin = .home
+        path = []
+        route = .local
+    }
+
+    /// Open the unified online search surface.
+    func showOnlineSearch(query: String = "") {
+        OnlineSearchState.shared.query = query
+        route = .onlineSearch
     }
 
     /// Open the online (OPDS) browser.
@@ -150,11 +174,19 @@ final class AppRouter {
                     route = .library
                     LibraryModel.shared.rescan()
                     return true
+                case .local:
+                    readerOrigin = .home
+                    selectedComic = nil
+                    route = .local
+                    return true
                 case .home:
                     showLibrary()
                     return true
                 }
-            case .browse, .readcomics:
+            case .browse, .readcomics, .onlineSearch:
+                showLibrary()
+                return true
+            case .local:
                 showLibrary()
                 return true
             case .collections:
@@ -241,6 +273,13 @@ struct RootView: View {
                     .onAppear {
                         if library.comics.isEmpty && !library.folders.isEmpty { library.scan() }
                     }
+            case .local:
+                LibraryView(localOnly: true)
+                    .onAppear {
+                        if library.comics.isEmpty && !library.folders.isEmpty { library.scan() }
+                    }
+            case .onlineSearch:
+                OnlineSearchView()
             case .reader:
                 ContentView()
             case .browse:
@@ -262,6 +301,9 @@ struct RootView: View {
         .overlay { if router.showShortcuts && router.route != .reader {
             ShortcutsOverlay { router.showShortcuts = false }
         } }
+        .overlay(alignment: .bottom) {
+            AppNoticeBar()
+        }
         .overlay { if showSplash { SplashView().transition(.opacity) } }
         .task {
             try? await Task.sleep(for: .seconds(1.2))
