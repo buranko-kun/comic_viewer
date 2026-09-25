@@ -563,6 +563,18 @@ struct ReadComicsBrowseView: View {
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .background(.white.opacity(0.08), in: Capsule())
             }
+            Button { router.showLibrary() } label: {
+                Label("Home", systemImage: "house")
+            }
+            .labelStyle(.iconOnly).help("Home").pointingHandCursor()
+            Button { router.showLocal() } label: {
+                Label("Local", systemImage: "internaldrive")
+            }
+            .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
+            Button { router.showOnline() } label: {
+                Label("Online", systemImage: "globe")
+            }
+            .labelStyle(.iconOnly).help("Online").pointingHandCursor()
             Button { showGate = true } label: { Label("Connect", systemImage: "shield.lefthalf.filled") }
                 .help("Open the Cloudflare gate (solve the check / re-mirror)").pointingHandCursor()
         }

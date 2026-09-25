@@ -97,10 +97,16 @@ private struct DownloadRow: View {
             Text("Queued").font(.caption2).foregroundStyle(.white.opacity(0.5))
         case .downloading(let frac):
             HStack(spacing: 8) {
-                ProgressView(value: frac ?? 0, total: 1)
-                    .progressViewStyle(.linear).tint(.red).frame(maxWidth: 160)
-                Text(frac.map { "\(Int($0 * 100))%" } ?? "…")
-                    .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+                if let frac {
+                    ProgressView(value: frac, total: 1)
+                        .progressViewStyle(.linear).tint(.red).frame(maxWidth: 160)
+                    Text("\(Int(frac * 100))%")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+                } else {
+                    ProgressView().progressViewStyle(.linear).tint(.red).frame(maxWidth: 160)
+                    Text("Downloading…")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+                }
             }
         case .done:
             Label("Downloaded to library", systemImage: "checkmark.circle.fill")

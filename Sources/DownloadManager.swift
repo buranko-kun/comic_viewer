@@ -126,6 +126,7 @@ final class DownloadManager {
                         }
                     }
                     setStatus(id, .done)
+                    AppNoticeCenter.shared.show("Downloaded to Library: \(item.title)")
                     LibraryModel.shared.rescan()   // rescan → reconcile replaces the item
                     return
                 } catch {

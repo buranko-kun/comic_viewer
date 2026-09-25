@@ -499,6 +499,18 @@ struct CollectionsView: View {
                 Text(subtitle).font(.caption2).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
             }
             Spacer()
+            Button { router.showLibrary() } label: {
+                Label("Home", systemImage: "house")
+            }
+            .labelStyle(.iconOnly).help("Home").pointingHandCursor()
+            Button { router.showLocal() } label: {
+                Label("Local", systemImage: "internaldrive")
+            }
+            .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
+            Button { router.showOnline() } label: {
+                Label("Online", systemImage: "globe")
+            }
+            .labelStyle(.iconOnly).help("Online").pointingHandCursor()
             if current == nil {
                 Button { showNew = true } label: { Label("New", systemImage: "plus") }
                     .pointingHandCursor()

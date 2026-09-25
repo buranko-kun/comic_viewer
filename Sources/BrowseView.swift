@@ -324,6 +324,14 @@ struct BrowseView: View {
                 Text(countSummary).font(.caption2).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
             }
             Spacer()
+            Button { router.showLibrary() } label: {
+                Label("Home", systemImage: "house")
+            }
+            .labelStyle(.iconOnly).help("Home").pointingHandCursor()
+            Button { router.showLocal() } label: {
+                Label("Local", systemImage: "internaldrive")
+            }
+            .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
             if selecting {
                 Button { openSelected() } label: { Label("Open \(selectedIDs.count)", systemImage: "safari") }
                     .disabled(selectedIDs.isEmpty).pointingHandCursor()
@@ -644,8 +652,13 @@ private struct ComicCard: View {
             switch downloads.status(forItem: comic.id) {
             case .downloading(let f):
                 HStack(spacing: 8) {
-                    ProgressView(value: f ?? 0).progressViewStyle(.linear)
-                    if let f { Text("\(Int(f * 100))%").font(.caption2).foregroundStyle(.secondary) }
+                    if let f {
+                        ProgressView(value: f).progressViewStyle(.linear)
+                        Text("\(Int(f * 100))%").font(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        ProgressView().progressViewStyle(.linear)
+                        Text("Downloading…").font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             case .needsBrowser:
                 Button { downloads.openInBrowser(item) } label: {
