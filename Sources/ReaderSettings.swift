@@ -56,9 +56,33 @@ final class ReaderSettings {
     var fitWideToWidth: Bool {
         didSet { UserDefaults.standard.set(fitWideToWidth, forKey: Keys.fitWide) }
     }
-    /// Show the thin chapter/reading progress bar along the bottom of the reader.
+    /// Show the thin reading progress timeline along the bottom of the reader.
     var showProgressBar: Bool {
         didSet { UserDefaults.standard.set(showProgressBar, forKey: Keys.progressBar) }
+    }
+
+    /// Which portion of the reader the bottom scrub timeline represents.
+    enum TimelineScope: String, CaseIterable, Identifiable {
+        case chapter, issue, series
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .chapter: return "Chapter"
+            case .issue: return "Issue"
+            case .series: return "Series"
+            }
+        }
+    }
+
+    /// Whether chapter boundaries are shown as markers on the Issue/Series timeline.
+    var showChapterMarkers: Bool {
+        didSet { UserDefaults.standard.set(showChapterMarkers, forKey: Keys.chapterMarkers) }
+    }
+
+    var timelineScope: TimelineScope {
+        didSet { UserDefaults.standard.set(timelineScope.rawValue, forKey: Keys.timelineScope) }
     }
 
     var readingDirection: ReadingDirection {
@@ -69,6 +93,8 @@ final class ReaderSettings {
         static let defaultView = "reader.defaultView"
         static let fitWide = "reader.fitWideToWidth"
         static let progressBar = "reader.showProgressBar"
+        static let chapterMarkers = "reader.showChapterMarkers"
+        static let timelineScope = "reader.timelineScope"
         static let readingDirection = "reader.readingDirection"
     }
 
@@ -78,6 +104,10 @@ final class ReaderSettings {
         // Default the two toggles ON (their previous fixed behavior) unless the user changed them.
         fitWideToWidth = d.object(forKey: Keys.fitWide) as? Bool ?? true
         showProgressBar = d.object(forKey: Keys.progressBar) as? Bool ?? true
+        showChapterMarkers = d.object(forKey: Keys.chapterMarkers) as? Bool ?? true
+        timelineScope = TimelineScope(
+            rawValue: d.string(forKey: Keys.timelineScope) ?? ""
+        ) ?? .issue
         readingDirection = ReadingDirection(
             rawValue: d.string(forKey: Keys.readingDirection) ?? ""
         ) ?? .leftToRight

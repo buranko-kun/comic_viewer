@@ -30,6 +30,37 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(rtl.arrangeSpread(1, 2).right, 1)
     }
 
+    func testTimelineScopeLabels() {
+        XCTAssertEqual(ReaderSettings.TimelineScope.chapter.label, "Chapter")
+        XCTAssertEqual(ReaderSettings.TimelineScope.issue.label, "Issue")
+        XCTAssertEqual(ReaderSettings.TimelineScope.series.label, "Series")
+    }
+
+    func testTimelineSettingsPersistThroughUserDefaults() {
+        let settings = ReaderSettings.shared
+        let previousScope = settings.timelineScope
+        let previousMarkers = settings.showChapterMarkers
+        defer {
+            settings.timelineScope = previousScope
+            settings.showChapterMarkers = previousMarkers
+        }
+
+        settings.timelineScope = .series
+        settings.showChapterMarkers = false
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "reader.timelineScope"),
+            "series"
+        )
+        XCTAssertEqual(
+            UserDefaults.standard.object(forKey: "reader.showChapterMarkers") as? Bool,
+            false
+        )
+
+        settings.timelineScope = .chapter
+        settings.showChapterMarkers = true
+    }
+
     func testReadingDirectionPersistsThroughUserDefaults() {
         let settings = ReaderSettings.shared
         let previous = settings.readingDirection

@@ -103,7 +103,8 @@ private struct ReaderTab: View {
 
     var body: some View {
         @Bindable var s = settings
-        return VStack(alignment: .leading, spacing: 18) {
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
             Text("Reader").font(.headline)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -139,15 +140,38 @@ private struct ReaderTab: View {
             .opacity(s.defaultView == .horizontal ? 0.5 : 1)
 
             Toggle(isOn: $s.showProgressBar) {
-                Text("Show chapter progress bar")
-                Text("The thin bar along the bottom of the reader showing your position through the "
-                     + "current chapter.")
+                Text("Show reading progress timeline")
+                Text("The thin bar along the bottom of the reader showing your position through the selected "
+                     + "timeline scope.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Timeline scope", selection: $s.timelineScope) {
+                    ForEach(ReaderSettings.TimelineScope.allCases) {
+                        Text($0.label).tag($0)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 320)
+
+                Text("Chapter focuses the timeline on the current chapter. Issue spans the whole open comic. Series spans the issues in the current library series.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Toggle(isOn: $s.showChapterMarkers) {
+                Text("Show chapter markers")
+                Text("Display chapter boundaries on the Issue and Series timelines.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(s.timelineScope == .chapter)
+
+            }
+            .padding(20)
         }
-        .padding(20)
     }
 }
 
