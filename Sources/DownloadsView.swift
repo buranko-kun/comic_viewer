@@ -7,6 +7,7 @@ import AppKit
 struct DownloadsView: View {
     @Environment(\.dismiss) private var dismiss
     private let dl = DownloadManager.shared
+    @State private var destination = DownloadDestinationStore.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,25 +21,73 @@ struct DownloadsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Downloads").font(.headline).foregroundStyle(.white)
-                Text(summary).font(.caption2).foregroundStyle(.white.opacity(0.5))
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Downloads").font(.headline).foregroundStyle(.white)
+                    Text(summary).font(.caption2).foregroundStyle(.white.opacity(0.5))
+                }
+                Spacer()
+                if dl.hasFinished {
+                    Button("Clear finished") { dl.clearFinished() }
+                        .buttonStyle(.borderless).pointingHandCursor()
+                }
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction).pointingHandCursor()
             }
-            Spacer()
-            if dl.hasFinished {
-                Button("Clear finished") { dl.clearFinished() }
-                    .buttonStyle(.borderless).pointingHandCursor()
+
+            HStack(spacing: 8) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.white.opacity(0.45))
+                Text(destination.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+
+                Menu {
+                    Button("Choose Download Folder…") {
+                        destination.chooseFolder()
+                    }
+                    Button("Open Destination in Finder") {
+                        destination.openInFinder()
+                    }
+                    if destination.isCustom {
+                        Divider()
+                        Button("Use Library (automatic)") {
+                            destination.resetToAutomatic()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .help("Download destination")
+                .pointingHandCursor()
             }
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction).pointingHandCursor()
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, 18).padding(.vertical, 10)
     }
 
     private var summary: String {
         let active = dl.activeCount
-        if active == 0 { return dl.jobs.isEmpty ? "No downloads" : "All done" }
+        let queued = dl.jobs.filter {
+            if case .queued = $0.status { return true }
+            return false
+        }.count
+
+        if active == 0 {
+            return dl.jobs.isEmpty ? "No downloads" : "All done"
+        }
+
+        if queued > 0 {
+            return "\(active) active · \(queued) queued"
+        }
+
         return "\(active) active"
     }
 

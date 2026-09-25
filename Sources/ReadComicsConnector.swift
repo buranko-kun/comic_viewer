@@ -575,6 +575,7 @@ struct ReadComicsBrowseView: View {
                 Label("Online", systemImage: "globe")
             }
             .labelStyle(.iconOnly).help("Online").pointingHandCursor()
+            DownloadQueueButton()
             Button { showGate = true } label: { Label("Connect", systemImage: "shield.lefthalf.filled") }
                 .help("Open the Cloudflare gate (solve the check / re-mirror)").pointingHandCursor()
         }

@@ -17,6 +17,8 @@ struct SettingsView: View {
                 .tabItem { Label("Sources", systemImage: "externaldrive.connected.to.line.below") }
             LibraryTab()
                 .tabItem { Label("Library", systemImage: "books.vertical") }
+            DownloadsSettingsTab()
+                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
             ConnectTab()
                 .tabItem { Label("Connect", systemImage: "network") }
             SharingTab()
@@ -238,6 +240,81 @@ private struct LibraryTab: View {
         panel.allowsMultipleSelection = true
         panel.prompt = "Add to Library"
         if panel.runModal() == .OK { panel.urls.forEach { library.addFolder($0) } }
+    }
+}
+
+/// Preferences → Downloads: choose where online comics are written.
+private struct DownloadsSettingsTab: View {
+    @State private var destination = DownloadDestinationStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Download destination").font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: destination.isCustom ? "folder.fill" : "books.vertical")
+                        .foregroundStyle(destination.isCustom ? Color.accentColor : Color.secondary)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(destination.isCustom ? "Custom folder" : "Library (automatic)")
+                            .font(.body.weight(.medium))
+                        Text(destination.displayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        destination.chooseFolder()
+                    } label: {
+                        Label("Choose…", systemImage: "folder")
+                    }
+                    .pointingHandCursor()
+                }
+                .padding(12)
+                .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            Text(destination.isCustom
+                 ? "Downloads are saved directly into this folder. Series-based automatic filing is disabled while a custom destination is selected."
+                 : "Downloads use the first library folder and the app's automatic series filing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 12) {
+                Button {
+                    destination.openInFinder()
+                } label: {
+                    Label("Open in Finder", systemImage: "arrow.up.forward.app")
+                }
+                .disabled(!destination.isCustom && LibraryModel.shared.folders.isEmpty)
+                .pointingHandCursor()
+
+                if destination.isCustom {
+                    Button("Use Library (automatic)") {
+                        destination.resetToAutomatic()
+                    }
+                    .pointingHandCursor()
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Queue").font(.headline)
+                Text("Downloads continue when this panel is closed. Use the Downloads button in the app chrome to reopen the live queue.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(20)
     }
 }
 
