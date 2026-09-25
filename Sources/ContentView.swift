@@ -606,6 +606,7 @@ struct ContentView: View {
                 PageScrubber(
                     urls: model.items,
                     currentIndex: model.index,
+                    chapters: model.chapterEntries,
                     spreadEnabled: model.spreadEnabled,
                     readingDirection: readerSettings.readingDirection,
                     cache: thumbCache,
@@ -676,6 +677,7 @@ struct ContentView: View {
         ChapterGridOverlay(
             entries: model.chapterEntries,
             currentIndex: model.index,
+            totalPageCount: model.items.count,
             cache: thumbCache,
             pageIndex: $chapterGridPage,
             onSelect: { index in

@@ -7,6 +7,7 @@ import CoreGraphics
 struct PageScrubber: View {
     let urls: [URL]
     let currentIndex: Int
+    let chapters: [(ordinal: Int, page: Int, index: Int, url: URL, name: String)]
     let spreadEnabled: Bool
     let readingDirection: ReaderSettings.ReadingDirection
     let cache: ThumbnailCache
@@ -35,6 +36,8 @@ struct PageScrubber: View {
                         width: geometry.size.width * progress(for: currentIndex),
                         height: trackHeight
                     )
+
+                chapterMarkers(width: geometry.size.width)
 
                 if isScrubbing, let previewIndex {
                     previewBubble(index: previewIndex, width: geometry.size.width)
@@ -76,6 +79,24 @@ struct PageScrubber: View {
         .onDisappear {
             previewTask?.cancel()
             previewTask = nil
+        }
+    }
+
+    @ViewBuilder
+    private func chapterMarkers(width: CGFloat) -> some View {
+        ForEach(chapters, id: \.index) { chapter in
+            let isCurrent = chapter.index <= currentIndex
+                && (chapters.first(where: { $0.index > chapter.index })?.index ?? urls.count) > currentIndex
+
+            Capsule()
+                .fill(isCurrent ? .white : .white.opacity(0.72))
+                .frame(width: isCurrent ? 3 : 2, height: isCurrent ? 13 : 10)
+                .position(
+                    x: width * progress(for: chapter.index),
+                    y: 9
+                )
+                .shadow(color: .black.opacity(0.7), radius: 1)
+                .allowsHitTesting(false)
         }
     }
 
