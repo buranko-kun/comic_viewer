@@ -17,6 +17,8 @@ struct SettingsView: View {
                 .tabItem { Label("Sources", systemImage: "externaldrive.connected.to.line.below") }
             LibraryTab()
                 .tabItem { Label("Library", systemImage: "books.vertical") }
+            StorageView()
+                .tabItem { Label("Storage", systemImage: "internaldrive") }
             ReadingStateBackupTab()
                 .tabItem { Label("Backup", systemImage: "arrow.up.arrow.down") }
             DownloadsSettingsTab()
@@ -26,7 +28,7 @@ struct SettingsView: View {
             SharingTab()
                 .tabItem { Label("Sharing", systemImage: "wifi") }
         }
-        .frame(width: 580, height: 440)
+        .frame(width: 760, height: 540)
     }
 
     private var sourcesTab: some View {
