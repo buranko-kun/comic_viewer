@@ -511,6 +511,7 @@ struct CollectionsView: View {
                 Label("Online", systemImage: "globe")
             }
             .labelStyle(.iconOnly).help("Online").pointingHandCursor()
+            DownloadQueueButton()
             if current == nil {
                 Button { showNew = true } label: { Label("New", systemImage: "plus") }
                     .pointingHandCursor()

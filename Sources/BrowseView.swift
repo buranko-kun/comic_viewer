@@ -100,7 +100,6 @@ struct BrowseView: View {
         }
         .tint(.white)
         .sheet(item: $pendingNewCollectionItem) { NewCollectionSheet(item: $0) }
-        .sheet(isPresented: $showDownloads) { DownloadsView() }
         .onAppear {
             swipeBack.onBack = { back() }
             keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
@@ -364,7 +363,7 @@ struct BrowseView: View {
                 .help("Sort order").pointingHandCursor()
                 Button { selecting = true } label: { Image(systemName: "checkmark.circle") }
                     .help("Select comics").pointingHandCursor()
-                downloadsButton
+                DownloadQueueButton()
                 Button { router.showCollections() } label: { Image(systemName: "rectangle.stack") }
                     .help("Collections").pointingHandCursor()
                 Button { Task { await aggregator.loadRoots() } } label: {
@@ -377,23 +376,6 @@ struct BrowseView: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 30).padding(.vertical, 10)
         .background(Color.black)
-    }
-
-    /// Downloads-panel button with a badge of active (downloading + queued) jobs.
-    private var downloadsButton: some View {
-        Button { showDownloads = true } label: {
-            Image(systemName: "arrow.down.circle")
-                .overlay(alignment: .topTrailing) {
-                    if downloadManager.activeCount > 0 {
-                        Text("\(downloadManager.activeCount)")
-                            .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(.red, in: Capsule())
-                            .offset(x: 8, y: -8)
-                    }
-                }
-        }
-        .help("Downloads").pointingHandCursor()
     }
 
     // MARK: Actions

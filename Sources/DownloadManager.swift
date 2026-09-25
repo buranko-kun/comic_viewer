@@ -103,6 +103,7 @@ final class DownloadManager {
     private func start(_ id: String) {
         guard let item = jobs.first(where: { $0.id == id })?.item else { return }
         setStatus(id, .downloading(nil))
+        let destinationFolder = destinationFolder(for: item.title)
         tasks[id] = Task { @MainActor in
             defer { tasks[id] = nil; pump() }   // free the slot and advance the queue, always
 
@@ -118,7 +119,8 @@ final class DownloadManager {
                 if Task.isCancelled { return }   // job cancelled → cancel() already removed it
                 setStatus(id, .downloading(nil))
                 do {
-                    _ = try await Self.perform(from: url, title: item.title, ext: ext) { frac in
+                    _ = try await Self.perform(from: url, title: item.title, ext: ext,
+                                                 destinationFolder: destinationFolder) { frac in
                         Task { @MainActor in
                             if case .downloading = self.status(forItem: id) {
                                 self.setStatus(id, .downloading(frac))
@@ -126,7 +128,10 @@ final class DownloadManager {
                         }
                     }
                     setStatus(id, .done)
-                    AppNoticeCenter.shared.show("Downloaded to Library: \(item.title)")
+                    let destinationMessage = DownloadDestinationStore.shared.isCustom
+                        ? "Downloaded: \(item.title)"
+                        : "Downloaded to Library: \(item.title)"
+                    AppNoticeCenter.shared.show(destinationMessage)
                     LibraryModel.shared.rescan()   // rescan → reconcile replaces the item
                     return
                 } catch {
@@ -144,13 +149,14 @@ final class DownloadManager {
 
     private enum DLError: Error { case tooSmall, badResponse }
 
-    /// Download `url` to the library downloads folder, reporting progress. Throws if the response
-    /// is smaller than the winner threshold (a locker gate) so we never keep a non-comic file.
+    /// Download `url` to the selected destination folder, reporting progress. Throws if the
+    /// response is smaller than the winner threshold (a locker gate) so we never keep a non-comic file.
     @discardableResult
     private static func perform(from url: URL, title: String, ext: String,
+                                destinationFolder: URL,
                                 onProgress: @escaping @Sendable (Double?) -> Void) async throws -> URL {
         let fm = FileManager.default
-        let dest = await destinationURL(title: title, ext: ext)
+        let dest = destinationURL(title: title, ext: ext, folder: destinationFolder)
 
         if url.isFileURL {
             try? fm.removeItem(at: dest)
@@ -184,9 +190,8 @@ final class DownloadManager {
         return dest
     }
 
-    /// A unique, filesystem-safe destination in the library's downloads folder.
-    private static func destinationURL(title: String, ext: String) async -> URL {
-        let folder = LibraryModel.shared.downloadFolder(forTitle: title)
+    /// A unique, filesystem-safe destination inside the selected folder.
+    private static func destinationURL(title: String, ext: String, folder: URL) -> URL {
         let base = sanitize(title)
         let fm = FileManager.default
         var candidate = folder.appendingPathComponent("\(base).\(ext)")
@@ -196,6 +201,16 @@ final class DownloadManager {
             n += 1
         }
         return candidate
+    }
+
+    /// Resolve the destination once before starting a download so all filesystem work stays
+    /// on the main actor and the async transfer can use a fixed path.
+    private func destinationFolder(for title: String) -> URL {
+        if let custom = DownloadDestinationStore.shared.customFolder {
+            try? FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+            return custom
+        }
+        return LibraryModel.shared.downloadFolder(forTitle: title)
     }
 
     private static func sanitize(_ name: String) -> String {

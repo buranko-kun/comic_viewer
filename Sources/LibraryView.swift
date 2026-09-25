@@ -477,6 +477,7 @@ struct LibraryView: View {
                 .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
             Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
                 .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
+            DownloadQueueButton()
             Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
                 .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
             Button { library.rescan() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
@@ -552,6 +553,7 @@ struct LibraryView: View {
 
             Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
                 .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
+            DownloadQueueButton()
             Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
                 .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
         }
@@ -602,6 +604,7 @@ struct LibraryView: View {
             Text(countLabel(subs: subs, issues: issues))
                 .font(.subheadline).foregroundStyle(.white.opacity(0.6))
             Spacer()
+            DownloadQueueButton()
         }
         .buttonStyle(.borderless)
         .tint(.white)
