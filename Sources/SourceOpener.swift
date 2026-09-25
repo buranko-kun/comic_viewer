@@ -78,10 +78,10 @@ final class SourceOpener {
         }
     }
 
-    /// Open a library remote issue.
-    func openRemote(_ comic: Comic) {
+    /// Open a library remote issue, optionally at a specific page.
+    func openRemote(_ comic: Comic, startIndex: Int? = nil) {
         archiveOpener.cancel()
-        remoteOpener.openRemote(comic)
+        remoteOpener.openRemote(comic, startIndex: startIndex)
     }
 
     // MARK: Local sources

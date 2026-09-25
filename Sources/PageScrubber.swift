@@ -7,11 +7,32 @@ import CoreGraphics
 struct PageScrubber: View {
     let urls: [URL]
     let currentIndex: Int
-    let chapters: [(ordinal: Int, page: Int, index: Int, url: URL, name: String)]
     let spreadEnabled: Bool
     let readingDirection: ReaderSettings.ReadingDirection
     let cache: ThumbnailCache
+    let showChapterMarkers: Bool
+    let chapterIndices: [Int]
     let onSelect: (Int) -> Void
+
+    init(
+        urls: [URL],
+        currentIndex: Int,
+        spreadEnabled: Bool,
+        readingDirection: ReaderSettings.ReadingDirection,
+        cache: ThumbnailCache,
+        showChapterMarkers: Bool = false,
+        chapterIndices: [Int] = [],
+        onSelect: @escaping (Int) -> Void
+    ) {
+        self.urls = urls
+        self.currentIndex = currentIndex
+        self.spreadEnabled = spreadEnabled
+        self.readingDirection = readingDirection
+        self.cache = cache
+        self.showChapterMarkers = showChapterMarkers
+        self.chapterIndices = chapterIndices
+        self.onSelect = onSelect
+    }
 
     @State private var isScrubbing = false
     @State private var previewIndex: Int?
@@ -37,7 +58,17 @@ struct PageScrubber: View {
                         height: trackHeight
                     )
 
-                chapterMarkers(width: geometry.size.width)
+                if showChapterMarkers {
+                    ForEach(chapterIndices, id: \.self) { marker in
+                        Capsule()
+                            .fill(.white.opacity(0.72))
+                            .frame(width: 2, height: trackHeight + 5)
+                            .position(
+                                x: geometry.size.width * progress(for: marker),
+                                y: geometry.size.height / 2
+                            )
+                    }
+                }
 
                 if isScrubbing, let previewIndex {
                     previewBubble(index: previewIndex, width: geometry.size.width)
@@ -79,24 +110,6 @@ struct PageScrubber: View {
         .onDisappear {
             previewTask?.cancel()
             previewTask = nil
-        }
-    }
-
-    @ViewBuilder
-    private func chapterMarkers(width: CGFloat) -> some View {
-        ForEach(chapters, id: \.index) { chapter in
-            let isCurrent = chapter.index <= currentIndex
-                && (chapters.first(where: { $0.index > chapter.index })?.index ?? urls.count) > currentIndex
-
-            Capsule()
-                .fill(isCurrent ? .white : .white.opacity(0.72))
-                .frame(width: isCurrent ? 3 : 2, height: isCurrent ? 13 : 10)
-                .position(
-                    x: width * progress(for: chapter.index),
-                    y: 9
-                )
-                .shadow(color: .black.opacity(0.7), radius: 1)
-                .allowsHitTesting(false)
         }
     }
 

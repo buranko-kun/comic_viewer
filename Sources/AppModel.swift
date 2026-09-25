@@ -36,6 +36,7 @@ final class AppModel {
     var currentName: String? { reader.currentName }
     var readingPortrait: Bool { reader.readingPortrait }
     var openGeneration: Int { reader.openGeneration }
+    var currentComicKey: String? { reader.currentComicKey }
     var orderedChapters: [(page: Int, name: String)] { reader.orderedChapters }
     var chapterEntries: [(ordinal: Int, page: Int, index: Int, url: URL, name: String)] { reader.chapterEntries }
     var isCurrentChapter: Bool { reader.isCurrentChapter }
@@ -69,8 +70,8 @@ final class AppModel {
         sourceOpener.open(urls: urls, startIndex: startIndex)
     }
 
-    func openRemote(_ comic: Comic) {
-        sourceOpener.openRemote(comic)
+    func openRemote(_ comic: Comic, startIndex: Int? = nil) {
+        sourceOpener.openRemote(comic, startIndex: startIndex)
     }
 
     /// Cancel all in-flight work and remove archive-session directories owned by the app.

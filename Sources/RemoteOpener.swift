@@ -15,7 +15,7 @@ final class RemoteOpener {
 
     /// Open a library remote issue. A fixed page list is used when available; otherwise the
     /// issue's page template is probed and the cached page count is reused on subsequent opens.
-    func openRemote(_ comic: Comic) {
+    func openRemote(_ comic: Comic, startIndex: Int? = nil) {
         cancel()
 
         let generation = reader.prepareForOpen(
@@ -34,7 +34,7 @@ final class RemoteOpener {
                 comicKey: key,
                 legacyStateURLs: [],
                 initialImage: nil,
-                start: nil
+                start: startIndex
             )
             return
         }
@@ -66,7 +66,7 @@ final class RemoteOpener {
                     comicKey: key,
                     legacyStateURLs: [],
                     initialImage: nil,
-                    start: nil
+                    start: startIndex
                 )
                 return
             }
@@ -105,7 +105,7 @@ final class RemoteOpener {
                     comicKey: key,
                     legacyStateURLs: [],
                     initialImage: nil,
-                    start: nil
+                    start: startIndex
                 )
             }
         }

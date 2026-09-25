@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(AppRouter.self) private var router
     @State private var keyMonitor = KeyMonitor()
     @State private var readerSettings = ReaderSettings.shared
+    @State private var library = LibraryModel.shared
 
     // Page counter caption (toggled with H, off by default).
     @State private var captionOpacity = 0.0
@@ -791,19 +792,138 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
 
-                PageScrubber(
-                    urls: model.items,
-                    currentIndex: model.index,
-                    spreadEnabled: model.spreadEnabled,
-                    readingDirection: readerSettings.readingDirection,
-                    cache: thumbCache,
-                    onSelect: { index in
-                        model.goTo(index: index)
-                    }
-                )
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                readerTimeline
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var readerTimeline: some View {
+        switch readerSettings.timelineScope {
+        case .chapter:
+            chapterTimeline
+        case .issue:
+            issueTimeline
+        case .series:
+            seriesTimeline
+        }
+    }
+
+    private var issueTimeline: some View {
+        PageScrubber(
+            urls: model.items,
+            currentIndex: model.index,
+            spreadEnabled: model.spreadEnabled,
+            readingDirection: readerSettings.readingDirection,
+            cache: thumbCache,
+            showChapterMarkers: readerSettings.showChapterMarkers,
+            chapterIndices: model.chapterEntries.map(\.index),
+            onSelect: { index in
+                model.goTo(index: index)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var chapterTimeline: some View {
+        if let range = currentChapterRange, range.end > range.start {
+            PageScrubber(
+                urls: Array(model.items[range.start..<range.end]),
+                currentIndex: model.index - range.start,
+                spreadEnabled: model.spreadEnabled,
+                readingDirection: readerSettings.readingDirection,
+                cache: thumbCache,
+                showChapterMarkers: false,
+                chapterIndices: [],
+                onSelect: { index in
+                    model.goTo(index: range.start + index)
+                }
+            )
+        } else {
+            issueTimeline
+        }
+    }
+
+    @ViewBuilder
+    private var seriesTimeline: some View {
+        let comics = seriesTimelineComics
+        if comics.count > 1, let current = currentLibraryComic {
+            SeriesScrubber(
+                comics: comics,
+                currentComicKey: currentComicKeyForTimeline(current),
+                currentIndex: model.index,
+                currentPageCount: model.items.count,
+                showChapterMarkers: readerSettings.showChapterMarkers,
+                chapterIndices: model.chapterEntries.map(\.index),
+                readingDirection: readerSettings.readingDirection,
+                cache: thumbCache,
+                onSelect: handleSeriesTimelineSelection
+            )
+        } else {
+            issueTimeline
+        }
+    }
+
+    private var currentChapterRange: (start: Int, end: Int)? {
+        let entries = model.chapterEntries
+        guard !model.items.isEmpty else { return nil }
+
+        let start: Int
+        let nextEnd: Int
+
+        if let current = entries.lastIndex(where: { $0.index <= model.index }) {
+            start = entries[current].index
+            nextEnd = entries.indices.contains(current + 1)
+                ? entries[current + 1].index
+                : model.items.count
+        } else {
+            start = 0
+            nextEnd = entries.first?.index ?? model.items.count
+        }
+
+        guard start < nextEnd else { return nil }
+        return (start, nextEnd)
+    }
+
+    private var currentLibraryComic: Comic? {
+        guard let key = model.currentComicKey else { return nil }
+        return library.comics.first { CentralStore.key(for: $0.url) == key }
+    }
+
+    private var seriesTimelineComics: [Comic] {
+        guard let current = currentLibraryComic else { return [] }
+        return library.comics
+            .filter { $0.series == current.series }
+            .sorted {
+                $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+    }
+
+    private func currentComicKeyForTimeline(_ comic: Comic) -> String {
+        CentralStore.key(for: comic.url)
+    }
+
+    private func handleSeriesTimelineSelection(_ comic: Comic, _ fraction: Double) {
+        let knownCount = comic == currentLibraryComic
+            ? model.items.count
+            : max(comic.progress?.count ?? 0, comic.pageCount)
+
+        let startIndex: Int? = knownCount > 1
+            ? Int((min(max(fraction, 0), 1) * Double(knownCount - 1)).rounded())
+            : nil
+
+        if comic == currentLibraryComic {
+            if let startIndex {
+                model.goTo(index: startIndex)
+            } else {
+                model.first()
+            }
+        } else if comic.isRemote {
+            model.openRemote(comic, startIndex: startIndex)
+        } else {
+            model.open(urls: [comic.url], startIndex: startIndex)
         }
     }
 

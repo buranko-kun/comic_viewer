@@ -52,6 +52,9 @@ final class ReaderSession {
         manualRotate ?? ReaderSettings.shared.defaultView.rotated
     }
 
+    /// Stable library/state key for the currently opened comic.
+    var currentComicKey: String? { comicKey }
+
     /// Bumped every time a comic begins opening.
     var openGeneration: Int { openSeq }
 
