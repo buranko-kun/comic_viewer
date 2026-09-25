@@ -416,7 +416,6 @@ struct BrowseView: View {
             } catch {
                 childError = error.localizedDescription
             }
-            catch { childError = error.localizedDescription }
             loadingChild = false
         }
     }
