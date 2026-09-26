@@ -32,7 +32,7 @@ struct SettingsView: View {
             SharingTab()
                 .tabItem { Label("Sharing", systemImage: "wifi") }
         }
-        .frame(width: 760, height: 540)
+        .frame(width: 760, height: 560)
     }
 
     private var sourcesTab: some View {
@@ -392,8 +392,7 @@ private struct ReadingStateBackupTab: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Reading state").font(.headline)
 
-            Text("Back up reading progress, manual chapter markers and names, and reading timestamps. "
-                 + "Comic files are never copied. Reader display settings are not included.")
+            Text("Back up reading progress, chapters, and timestamps. Comic files and display settings are not included.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -554,13 +553,9 @@ private struct LibraryTab: View {
             Divider().padding(.vertical, 4)
 
             Text("Faster loading").font(.headline)
-            Text("Comics packed as RAR (many .cbr/.cbz files) must be fully extracted before they "
-                 + "open, which is slow for large books. Converting them to ZIP lets the app load "
-                 + "just the pages you're viewing, so opens and chapter jumps are near-instant.")
+            Text("Convert CBR/RAR archives to ZIP for faster page loading.")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("Lossless — the page images are copied unchanged; only the archive format changes. "
-                 + "Files are rewritten in place under the same name, so your reading progress and "
-                 + "chapters are kept. ZIP files are slightly larger. Already-ZIP comics are skipped.")
+            Text("Page images are unchanged. Existing progress and chapters stay intact.")
                 .font(.caption).foregroundStyle(.secondary)
 
             if let p = library.normalizeProgress {
@@ -586,10 +581,8 @@ private struct LibraryTab: View {
             Divider().padding(.vertical, 4)
 
             Text("Online metadata").font(.headline)
-            Text("For comics without embedded ComicInfo.xml, fetch series, creators, publisher, and "
-                 + "summary from ComicVine (a free key: comicvine.gamespot.com/api). The result is "
-                 + "saved as a standard ComicInfo.xml, so your readers and OPDS see it too.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Fetch missing ComicVine metadata and save it as ComicInfo.xml.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 SecureField("ComicVine API key", text: $comicVineKey)
                     .textFieldStyle(.roundedBorder)
@@ -728,10 +721,7 @@ private struct ConnectTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Connect to a site").font(.headline)
-            Text("Some sites (e.g. ReadComicsOnline) sit behind a Cloudflare check that blocks direct "
-                 + "requests. This opens the site in a real browser so you can solve the check once; "
-                 + "the app captures the clearance and verifies it can then reach the site itself — "
-                 + "the groundwork for importing a whole series automatically.")
+            Text("Open a site in a browser to complete Cloudflare, then reuse the session in Comic Viewer.")
                 .font(.caption).foregroundStyle(.secondary)
             Button {
                 showGate = true
