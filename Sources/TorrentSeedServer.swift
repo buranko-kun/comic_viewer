@@ -279,18 +279,25 @@ private final class TorrentSeedPeer: @unchecked Sendable {
     private func processFrames() {
         while receiveBuffer.count >= 4 {
             let length = Int(receiveBuffer.readUInt32BE(at: 0))
+
             guard length <= 2 * 1024 * 1024 else {
                 finish()
                 return
             }
-            guard receiveBuffer.count >= 4 + length else { return }
 
-            let payloadStart = 4
+            guard receiveBuffer.count >= 4 + length else {
+                return
+            }
+
+            let base = receiveBuffer.startIndex
+            let payloadStart = base + 4
             let payloadEnd = payloadStart + length
             let payload = Data(receiveBuffer[payloadStart..<payloadEnd])
-            receiveBuffer.removeFirst(payloadEnd)
+            receiveBuffer.removeFirst(4 + length)
 
-            guard length > 0 else { continue }
+            guard length > 0 else {
+                continue
+            }
 
             guard let message = try? PeerMessage.decode(from: payload) else {
                 continue
