@@ -287,7 +287,7 @@ final class TorrentManager {
 
         if let handle = downloadHandles.removeValue(forKey: item.id),
            let session,
-           let hash = try? InfoHash(hex: item.id) {
+           let hash = InfoHash(hex: item.id) {
             Task {
                 await session.removeTorrent(hash, deleteFiles: deleteFiles)
                 await refreshStatuses()
@@ -319,7 +319,7 @@ final class TorrentManager {
     }
 
     private func refreshStatuses() async {
-        guard let session else {
+        guard session != nil else {
             refreshSeedCounts()
             return
         }
@@ -337,8 +337,7 @@ final class TorrentManager {
                 downloadRate: status.downloadRate,
                 uploadRate: status.uploadRate,
                 totalDownloaded: status.totalDownloaded,
-                totalUploaded: status.totalUploaded,
-                totalSize: status.totalSize
+                totalUploaded: status.totalUploaded
             )
 
             if status.state == .seeding && !wasSeeding {
@@ -476,7 +475,6 @@ final class TorrentManager {
         uploadRate: Double? = nil,
         totalDownloaded: Int64? = nil,
         totalUploaded: Int64? = nil,
-        totalSize: Int64? = nil,
         error: String? = nil
     ) {
         itemUpdate(id) { item in
@@ -488,7 +486,6 @@ final class TorrentManager {
             if let uploadRate { item.uploadRate = uploadRate }
             if let totalDownloaded { item.totalDownloaded = totalDownloaded }
             if let totalUploaded { item.totalUploaded = totalUploaded }
-            if let totalSize { item.totalSize = totalSize }
             item.error = error
         }
     }
