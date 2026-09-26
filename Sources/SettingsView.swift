@@ -359,20 +359,9 @@ private struct ReaderTab: View {
 
                         Toggle("Keep cover page alone", isOn: $s.coverAloneInSpread)
 
-                        Text("Page 1 stays alone, then pages pair from 2–3.")
+                        Text("Page 1 stays alone, then pages pair from 2–3. Wide pages are shown alone.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
-                        Divider()
-
-                        HStack(spacing: 12) {
-                            Text("Gutter")
-                            Slider(value: $s.spreadGutter, in: 0...48, step: 1)
-                            Text("\(Int(s.spreadGutter.rounded())) pt")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(minWidth: 38, alignment: .trailing)
-                        }
                     }
                     .padding(4)
                 }
