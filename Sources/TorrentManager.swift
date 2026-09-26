@@ -224,7 +224,11 @@ final class TorrentManager {
 
     func seed(created: TorrentCreator.Result, torrentURL: URL) throws {
         try seedServer.start(port: TorrentSettingsStore.shared.listenPort)
-        seedServer.addSeed(info: created.info, sourceURL: created.sourceURL)
+        seedServer.addSeed(
+            info: created.info,
+            sourceURL: created.sourceURL,
+            metadata: created.infoDictionaryData
+        )
 
         let trackers = created.trackers.isEmpty
             ? TorrentSettingsStore.shared.trackers
@@ -554,14 +558,22 @@ final class TorrentManager {
                 FileManager.default.fileExists(atPath: sourceURL.path),
                 FileManager.default.fileExists(atPath: torrentURL.path),
                 let torrentData = try? Data(contentsOf: torrentURL),
-                let info = try? TorrentInfo.parse(from: torrentData)
+                let info = try? TorrentInfo.parse(from: torrentData),
+                let metadata = try? TorrentMetadataWire.extractInfoDictionary(
+                    from: torrentData,
+                    matching: info.infoHash
+                )
             else {
                 continue
             }
 
             do {
                 try seedServer.start(port: TorrentSettingsStore.shared.listenPort)
-                seedServer.addSeed(info: info, sourceURL: sourceURL)
+                seedServer.addSeed(
+                    info: info,
+                    sourceURL: sourceURL,
+                    metadata: metadata
+                )
                 let id = info.infoHash.description
                 let trackers = entry.trackers
                 upsert(Item(

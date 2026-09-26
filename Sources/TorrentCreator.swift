@@ -10,6 +10,8 @@ import SwiftTorrent
 struct TorrentCreator {
     struct Result: Sendable {
         let data: Data
+        /// Exact bencoded "info" dictionary bytes used for the torrent's v1 info hash.
+        let infoDictionaryData: Data
         let info: TorrentInfo
         let magnet: String
         let sourceURL: URL
@@ -142,6 +144,7 @@ struct TorrentCreator {
 
         return Result(
             data: torrentData,
+            infoDictionaryData: infoData,
             info: parsed,
             magnet: magnet,
             sourceURL: source,

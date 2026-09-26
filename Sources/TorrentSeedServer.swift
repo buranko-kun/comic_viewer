@@ -15,6 +15,8 @@ final class TorrentSeedServer {
     struct SeedContext: Sendable {
         let info: TorrentInfo
         let sourceURL: URL
+        /// Exact bencoded "info" dictionary bytes used to calculate the info hash.
+        let metadata: Data
     }
 
     var isRunning: Bool { listener != nil }
@@ -130,9 +132,17 @@ final class TorrentSeedServer {
         }
     }
 
-    func addSeed(info: TorrentInfo, sourceURL: URL) {
+    func addSeed(info: TorrentInfo, sourceURL: URL, metadata: Data) {
         let id = info.infoHash.description
-        seeds[id] = SeedContext(info: info, sourceURL: sourceURL.standardizedFileURL)
+        guard InfoHash.v1(from: metadata) == info.infoHash else {
+            assertionFailure("Seed metadata does not match torrent info hash")
+            return
+        }
+        seeds[id] = SeedContext(
+            info: info,
+            sourceURL: sourceURL.standardizedFileURL,
+            metadata: metadata
+        )
         uploadedByHash[id, default: 0] = uploadedByHash[id, default: 0]
         rateSamples[id] = (Date(), uploadedByHash[id] ?? 0)
     }
@@ -174,6 +184,7 @@ private final class TorrentSeedPeer: @unchecked Sendable {
 
     private var receiveBuffer = Data()
     private var seed: TorrentSeedServer.SeedContext?
+    private var peerMetadataID: UInt8?
     private var closed = false
 
     init(
@@ -248,15 +259,22 @@ private final class TorrentSeedPeer: @unchecked Sendable {
     }
 
     private func sendInitialState(seed: TorrentSeedServer.SeedContext) {
-        // This seeder does not implement BEP-10 extensions, so do not advertise
-        // extension support in the handshake. Otherwise clients such as qBittorrent may
-        // initiate an extended handshake that we cannot answer.
+        // Advertise and initialize BEP-10 because magnet clients such as qBittorrent
+        // need BEP-9 ut_metadata to obtain the torrent info dictionary before they can
+        // evaluate piece availability.
         let response = Handshake(
             infoHash: seed.info.infoHash.bytes,
             peerID: peerID,
-            reserved: Data(count: 8)
+            reserved: Handshake.defaultReserved()
         ).encode()
         send(response)
+
+        let metadataHandshake = TorrentMetadataWire.extendedHandshake(
+            metadataSize: seed.metadata.count
+        )
+        print("[TorrentSeedPeer] sending ut_metadata handshake metadataSize=(seed.metadata.count)")
+        send(PeerMessage.extended(id: TorrentMetadataWire.localExtensionID, payload: metadataHandshake).encode())
+
         if seed.info.pieceCount > 0 {
             let bitfield = allPieces(count: seed.info.pieceCount)
             print("[TorrentSeedPeer] sending bitfield bytes=\(bitfield.count) hex=\(bitfield.map { String(format: "%02x", $0) }.joined())")
@@ -316,6 +334,36 @@ private final class TorrentSeedPeer: @unchecked Sendable {
         guard let seed else { return }
 
         switch message {
+        case .extended(let extensionID, let payload):
+            guard let seed else { return }
+
+            if extensionID == TorrentMetadataWire.handshakeExtensionID {
+                if let peerID = TorrentMetadataWire.peerMetadataExtensionID(from: payload) {
+                    peerMetadataID = peerID
+                    print("[TorrentSeedPeer] peer ut_metadata extension id=(peerID)")
+                }
+                return
+            }
+
+            guard let peerMetadataID, extensionID == peerMetadataID,
+                  let requestPiece = TorrentMetadataWire.metadataRequestPiece(from: payload) else {
+                return
+            }
+
+            guard let metadataResponse = TorrentMetadataWire.metadataResponse(
+                piece: requestPiece,
+                metadata: seed.metadata
+            ) else {
+                print("[TorrentSeedPeer] rejecting invalid metadata piece=(requestPiece)")
+                return
+            }
+
+            print("[TorrentSeedPeer] sending ut_metadata piece=(requestPiece)")
+            send(PeerMessage.extended(
+                id: TorrentMetadataWire.localExtensionID,
+                payload: metadataResponse
+            ).encode())
+
         case .interested:
             print("[TorrentSeedPeer] peer is INTERESTED -> unchoking")
             send(PeerMessage.unchoke.encode())
@@ -442,6 +490,97 @@ private final class TorrentSeedPeer: @unchecked Sendable {
             self.connection.cancel()
             self.onClosed(self.id)
         }
+    }
+}
+
+internal enum TorrentMetadataWire {
+    static let handshakeExtensionID: UInt8 = 0
+    static let localExtensionID: UInt8 = 1
+    static let metadataPieceSize = 16 * 1024
+
+    static func extendedHandshake(metadataSize: Int) -> Data {
+        let encoder = BencodeEncoder()
+        let value = BencodeValue.dictionary([
+            (
+                key: Data("m".utf8),
+                value: .dictionary([
+                    (key: Data("ut_metadata".utf8), value: .integer(Int64(localExtensionID)))
+                ])
+            ),
+            (key: Data("metadata_size".utf8), value: .integer(Int64(metadataSize)))
+        ])
+        return encoder.encode(value)
+    }
+
+    static func peerMetadataExtensionID(from payload: Data) -> UInt8? {
+        let decoder = BencodeDecoder()
+        guard let value = try? decoder.decode(payload),
+              let extensions = value["m"],
+              let extensionID = extensions["ut_metadata"]?.integerValue,
+              extensionID >= 0,
+              extensionID <= Int64(UInt8.max) else {
+            return nil
+        }
+        return UInt8(extensionID)
+    }
+
+    static func metadataRequestPiece(from payload: Data) -> Int? {
+        let decoder = BencodeDecoder()
+        guard let value = try? decoder.decode(payload),
+              value["msg_type"]?.integerValue == 0,
+              let piece = value["piece"]?.integerValue,
+              piece >= 0,
+              piece <= Int64(Int.max) else {
+            return nil
+        }
+        return Int(piece)
+    }
+
+    static func metadataResponse(piece: Int, metadata: Data) -> Data? {
+        guard piece >= 0 else { return nil }
+
+        let multiplication = piece.multipliedReportingOverflow(by: metadataPieceSize)
+        guard !multiplication.overflow, multiplication.partialValue < metadata.count else {
+            return nil
+        }
+        let start = multiplication.partialValue
+        let end = min(start + metadataPieceSize, metadata.count)
+        let block = metadata[start..<end]
+
+        let encoder = BencodeEncoder()
+        let header = encoder.encode(.dictionary([
+            (key: Data("msg_type".utf8), value: .integer(1)),
+            (key: Data("piece".utf8), value: .integer(Int64(piece))),
+            (key: Data("total_size".utf8), value: .integer(Int64(metadata.count)))
+        ]))
+
+        var payload = header
+        payload.append(block)
+        return payload
+    }
+
+    static func extractInfoDictionary(from torrentData: Data, matching infoHash: InfoHash) throws -> Data {
+        let key = Data("4:info".utf8)
+        let decoder = BencodeDecoder()
+        var searchStart = torrentData.startIndex
+
+        while searchStart < torrentData.endIndex,
+              let keyRange = torrentData.range(of: key, options: [], in: searchStart..<torrentData.endIndex) {
+            let valueStart = keyRange.upperBound
+            let suffix = Data(torrentData[valueStart...])
+
+            if let (value, range) = try? decoder.decodeWithRange(suffix),
+               case .dictionary = value {
+                let candidate = Data(suffix[range])
+                if InfoHash.v1(from: candidate) == infoHash {
+                    return candidate
+                }
+            }
+
+            searchStart = valueStart
+        }
+
+        throw TorrentInfoError.invalidFormat("Unable to extract raw info dictionary")
     }
 }
 
