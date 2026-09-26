@@ -32,7 +32,7 @@ struct SettingsView: View {
             SharingTab()
                 .tabItem { Label("Sharing", systemImage: "wifi") }
         }
-        .frame(width: 760, height: 540)
+        .frame(width: 760, height: 560)
     }
 
     private var sourcesTab: some View {
@@ -41,7 +41,7 @@ struct SettingsView: View {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Catalog sources").font(.headline)
-                        Text("JSON catalogs and OPDS feeds. These are data sources; scraper code is not installed.")
+                        Text("Catalog feeds used by the Online section.")
                             .font(.caption).foregroundStyle(.secondary)
 
                         if sources.sources.isEmpty {
@@ -85,7 +85,7 @@ struct SettingsView: View {
                             Spacer()
                         }
 
-                        Text("One URL per line. Lines starting with # are ignored; “Name | URL” is also supported.")
+                        Text("One URL per line. Use Name | URL for a custom name.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -95,7 +95,7 @@ struct SettingsView: View {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Source plugins").font(.headline)
-                        Text("Install third-party JavaScript scrapers without rebuilding or forking Comic Viewer.")
+                        Text("Add JavaScript source plugins without rebuilding the app.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -183,7 +183,7 @@ struct SettingsView: View {
                             }
                         }
 
-                        Text("Plugins run as web JavaScript. Only install code you trust.")
+                        Text("Plugins run as JavaScript. Install only from sources you trust.")
                             .font(.caption2)
                             .foregroundStyle(.orange.opacity(0.9))
                     }
@@ -257,104 +257,119 @@ private struct ReaderTab: View {
 
     var body: some View {
         @Bindable var s = settings
+
         return ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-            Text("Reader").font(.headline)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Reader")
+                    .font(.title2.weight(.semibold))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("Default view", selection: $s.defaultView) {
-                    ForEach(ReaderSettings.DefaultView.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented).frame(maxWidth: 260)
-                Text("Horizontal shows pages as-is. Vertical rotates portrait pages to landscape "
-                     + "(landscape pages stay as they are). Press R while reading to switch a single "
-                     + "comic — it resets to this default when you leave.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+                GroupBox("Reading") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 14) {
+                            Text("Default view")
+                                .frame(width: 132, alignment: .leading)
+                            Picker("Default view", selection: $s.defaultView) {
+                                ForEach(ReaderSettings.DefaultView.allCases) {
+                                    Text($0.label).tag($0)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("Reading direction", selection: $s.readingDirection) {
-                    ForEach(ReaderSettings.ReadingDirection.allCases) {
-                        Text($0.label).tag($0)
+                        Text("Horizontal keeps pages as-is. Vertical rotates portrait pages.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Divider()
+
+                        HStack(spacing: 14) {
+                            Text("Reading direction")
+                                .frame(width: 132, alignment: .leading)
+                            Picker("Reading direction", selection: $s.readingDirection) {
+                                ForEach(ReaderSettings.ReadingDirection.allCases) {
+                                    Text($0.label).tag($0)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
+
+                        Text("Also reverses horizontal navigation.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Divider()
+
+                        Toggle("Fit wide pages to screen width", isOn: $s.fitWideToWidth)
+                            .disabled(s.defaultView == .horizontal)
+                            .opacity(s.defaultView == .horizontal ? 0.5 : 1)
+
+                        Text("Applies only in Vertical view.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(4)
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 260)
-                Text("Right to left reverses the physical page layout and horizontal navigation. "
-                     + "Saved page positions and logical page order stay unchanged.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
 
-            Toggle(isOn: $s.fitWideToWidth) {
-                Text("Fit pages to screen width")
-                Text("In Vertical view, pages fill the full screen width and pan vertically instead of "
-                     + "shrinking to fit the whole page.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .disabled(s.defaultView == .horizontal)
-            .opacity(s.defaultView == .horizontal ? 0.5 : 1)
+                GroupBox("Progress") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Show reading timeline", isOn: $s.showProgressBar)
 
-            Toggle(isOn: $s.showProgressBar) {
-                Text("Show reading progress timeline")
-                Text("The thin bar along the bottom of the reader showing your position through the selected "
-                     + "timeline scope.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+                        HStack(spacing: 14) {
+                            Text("Timeline")
+                                .frame(width: 132, alignment: .leading)
+                            Picker("Timeline", selection: $s.timelineScope) {
+                                ForEach(ReaderSettings.TimelineScope.allCases) {
+                                    Text($0.label).tag($0)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("Timeline scope", selection: $s.timelineScope) {
-                    ForEach(ReaderSettings.TimelineScope.allCases) {
-                        Text($0.label).tag($0)
+                        Text("Chapter, issue, or series.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Divider()
+
+                        Toggle("Show chapter markers", isOn: $s.showChapterMarkers)
+                            .disabled(s.timelineScope == .chapter)
+
+                        Text("Shown on Issue and Series timelines.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 320)
-
-                Text("Chapter focuses the timeline on the current chapter. Issue spans the whole open comic. Series spans the issues in the current library series.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Toggle(isOn: $s.showChapterMarkers) {
-                Text("Show chapter markers")
-                Text("Display chapter boundaries on the Issue and Series timelines.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .disabled(s.timelineScope == .chapter)
-
-            Divider()
-
-            Text("Two-page spread").font(.headline)
-
-            Toggle("Keep cover page alone", isOn: $s.coverAloneInSpread)
-                .help("When enabled, page 1 is shown by itself; pages 2–3, 4–5, etc. form spreads.")
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Gutter")
-                    Spacer()
-                    Text("\(Int(s.spreadGutter.rounded())) pt")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 42, alignment: .trailing)
+                    .padding(4)
                 }
 
-                Slider(value: $s.spreadGutter, in: 0...48, step: 1)
-                    .help("Space between facing pages in two-page spread mode.")
-            }
+                GroupBox("Pages") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Two-page spread", isOn: $s.twoPageSpread)
+                            .onChange(of: s.twoPageSpread) { _, value in
+                                AppModel.shared.setSpreadEnabled(value)
+                            }
 
-            Text("The cover setting updates spread layout immediately. The gutter also updates immediately.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                        Text("Toggle with W while reading.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
+                        Divider()
+
+                        Toggle("Keep cover page alone", isOn: $s.coverAloneInSpread)
+
+                        Text("Page 1 stays alone, then pages pair from 2–3. Wide pages are shown alone.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(4)
+                }
             }
             .padding(20)
         }
     }
 }
-
 
 /// Preferences → Backup: export/import the per-comic reading state stored by ComicViewer.
 private struct ReadingStateBackupTab: View {
@@ -366,8 +381,7 @@ private struct ReadingStateBackupTab: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Reading state").font(.headline)
 
-            Text("Back up reading progress, manual chapter markers and names, and reading timestamps. "
-                 + "Comic files are never copied. Reader display settings are not included.")
+            Text("Back up reading progress, chapters, and timestamps. Comic files and display settings are not included.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -504,7 +518,7 @@ private struct LibraryTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Library folders").font(.headline)
-            Text("Folders scanned for comics. Add the folders that hold your library.")
+            Text("Folders containing your comics.")
                 .font(.caption).foregroundStyle(.secondary)
             List {
                 if library.folders.isEmpty {
@@ -528,13 +542,9 @@ private struct LibraryTab: View {
             Divider().padding(.vertical, 4)
 
             Text("Faster loading").font(.headline)
-            Text("Comics packed as RAR (many .cbr/.cbz files) must be fully extracted before they "
-                 + "open, which is slow for large books. Converting them to ZIP lets the app load "
-                 + "just the pages you're viewing, so opens and chapter jumps are near-instant.")
+            Text("Convert CBR/RAR archives to ZIP for faster page loading.")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("Lossless — the page images are copied unchanged; only the archive format changes. "
-                 + "Files are rewritten in place under the same name, so your reading progress and "
-                 + "chapters are kept. ZIP files are slightly larger. Already-ZIP comics are skipped.")
+            Text("Page images are unchanged. Existing progress and chapters stay intact.")
                 .font(.caption).foregroundStyle(.secondary)
 
             if let p = library.normalizeProgress {
@@ -560,10 +570,8 @@ private struct LibraryTab: View {
             Divider().padding(.vertical, 4)
 
             Text("Online metadata").font(.headline)
-            Text("For comics without embedded ComicInfo.xml, fetch series, creators, publisher, and "
-                 + "summary from ComicVine (a free key: comicvine.gamespot.com/api). The result is "
-                 + "saved as a standard ComicInfo.xml, so your readers and OPDS see it too.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Fetch missing ComicVine metadata and save it as ComicInfo.xml.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 SecureField("ComicVine API key", text: $comicVineKey)
                     .textFieldStyle(.roundedBorder)
@@ -657,8 +665,8 @@ private struct DownloadsSettingsTab: View {
             }
 
             Text(destination.isCustom
-                 ? "Downloads are saved directly into this folder. Series-based automatic filing is disabled while a custom destination is selected."
-                 : "Downloads use the first library folder and the app's automatic series filing.")
+                 ? "Custom folders disable automatic series filing."
+                 : "Automatic downloads use the first library folder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -684,7 +692,7 @@ private struct DownloadsSettingsTab: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Queue").font(.headline)
-                Text("Downloads continue when this panel is closed. Use the Downloads button in the app chrome to reopen the live queue.")
+                Text("Downloads continue in the background. Reopen the queue from the toolbar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -702,10 +710,7 @@ private struct ConnectTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Connect to a site").font(.headline)
-            Text("Some sites (e.g. ReadComicsOnline) sit behind a Cloudflare check that blocks direct "
-                 + "requests. This opens the site in a real browser so you can solve the check once; "
-                 + "the app captures the clearance and verifies it can then reach the site itself — "
-                 + "the groundwork for importing a whole series automatically.")
+            Text("Open a site in a browser to complete Cloudflare, then reuse the session in Comic Viewer.")
                 .font(.caption).foregroundStyle(.secondary)
             Button {
                 showGate = true
@@ -752,7 +757,7 @@ private struct SharingTab: View {
                             }
                         }
                         row("Pairing code", server.pairingCode)
-                        Text("Pair once from the iPhone. It then uses a private session token instead of sending this code on every API request.")
+                        Text("Pair once on the phone; a session token is used afterward.")
                             .font(.caption2).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Text("Running on port \(server.port).")

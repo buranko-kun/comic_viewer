@@ -53,6 +53,52 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertEqual(navigation.index, 0)
     }
 
+    func testExplicitSpreadStatePreservesLogicalResumePage() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 5)
+
+        navigation.configure(items: pages, folder: nil, coverAloneInSpread: true)
+        XCTAssertTrue(navigation.goTo(index: 2))
+        XCTAssertTrue(navigation.setSpreadEnabled(true))
+        XCTAssertEqual(navigation.index, 1)
+
+        let state = navigation.makeState(comicKey: nil)
+        XCTAssertEqual(state.lastPage, pages[2].absoluteString)
+
+        XCTAssertTrue(navigation.setSpreadEnabled(false))
+        XCTAssertEqual(navigation.index, 2)
+    }
+
+    func testWidePagesStayStandaloneAndNavigationDoesNotSkip() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 6)
+
+        navigation.configure(items: pages, folder: nil, coverAloneInSpread: true)
+        XCTAssertTrue(navigation.setSpreadEnabled(true))
+
+        navigation.setPageWide(index: 2, isWide: true)
+
+        XCTAssertTrue(navigation.goTo(index: 1))
+        XCTAssertEqual(navigation.index, 1)
+        XCTAssertNil(navigation.secondaryIndex)
+
+        XCTAssertTrue(navigation.next())
+        XCTAssertEqual(navigation.index, 2)
+        XCTAssertNil(navigation.secondaryIndex)
+
+        XCTAssertTrue(navigation.next())
+        XCTAssertEqual(navigation.index, 3)
+        XCTAssertEqual(navigation.secondaryIndex, 4)
+
+        XCTAssertTrue(navigation.prev())
+        XCTAssertEqual(navigation.index, 2)
+
+        navigation.setPageWide(index: 3, isWide: true)
+        XCTAssertTrue(navigation.goTo(index: 4))
+        XCTAssertEqual(navigation.index, 4)
+        XCTAssertNil(navigation.secondaryIndex)
+    }
+
     func testDisablingSpreadRestoresLogicalResumePage() {
         var navigation = ReaderNavigation()
         let pages = makePages(count: 5)

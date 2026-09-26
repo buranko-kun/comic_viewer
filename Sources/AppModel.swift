@@ -50,6 +50,7 @@ final class AppModel {
     func last() { reader.last() }
 
     func setCoverAloneInSpread(_ enabled: Bool) { reader.setCoverAloneInSpread(enabled) }
+    func setSpreadEnabled(_ enabled: Bool) { reader.setSpreadEnabled(enabled) }
 
     @discardableResult
     func toggleSpread() -> String { reader.toggleSpread() }

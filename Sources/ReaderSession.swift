@@ -125,6 +125,7 @@ final class ReaderSession {
             folder: newFolder,
             coverAloneInSpread: ReaderSettings.shared.coverAloneInSpread
         )
+        _ = navigation.setSpreadEnabled(ReaderSettings.shared.twoPageSpread)
 
         if let first = items.first, first.isFileURL, let info = ImageLoader.probe(first) {
             pagesLandscape = !info.isPortrait
@@ -191,10 +192,23 @@ final class ReaderSession {
         reload()
     }
 
+    func setSpreadEnabled(_ enabled: Bool) {
+        navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
+        guard navigation.setSpreadEnabled(enabled) else { return }
+
+        ReaderSettings.shared.twoPageSpread = enabled
+        if !enabled {
+            secondary = nil
+        }
+        scheduleSaveState()
+        reload()
+    }
+
     @discardableResult
     func toggleSpread() -> String {
         navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
         let message = navigation.toggleSpread()
+        ReaderSettings.shared.twoPageSpread = navigation.spreadEnabled
         if !navigation.spreadEnabled {
             secondary = nil
         }
@@ -221,8 +235,10 @@ final class ReaderSession {
         loadTask?.cancel()
         loadToken += 1
         let token = loadToken
+        let pageIndex = index
         let url = items[index]
-        let secondURL = navigation.secondaryIndex.map { items[$0] }
+        let secondIndex = navigation.secondaryIndex
+        let secondURL = secondIndex.map { items[$0] }
         let maxPixel = Self.displayMaxPixel()
         let source = source
 
@@ -240,6 +256,13 @@ final class ReaderSession {
             )
 
             guard !Task.isCancelled, token == loadToken else { return }
+            if let img {
+                navigation.setPageWide(index: pageIndex, isWide: !img.isPortrait)
+            }
+            if let img2, let secondIndex {
+                navigation.setPageWide(index: secondIndex, isWide: !img2.isPortrait)
+            }
+
             current = img
             renderTick &+= 1
 
@@ -250,7 +273,7 @@ final class ReaderSession {
                 )
                 self.openStartedAt = nil
             }
-            secondary = img2
+            secondary = (img?.isPortrait == true && img2?.isPortrait == true) ? img2 : nil
             failedName = (img == nil) ? url.lastPathComponent : nil
             failedURL = (img == nil) ? url : nil
 
