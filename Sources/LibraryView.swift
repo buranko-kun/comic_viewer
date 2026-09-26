@@ -490,7 +490,6 @@ struct LibraryView: View {
                 .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
             DownloadQueueButton()
             TorrentQueueButton()
-            TorrentQueueButton()
             Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
                 .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
             Button { library.rescan() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
