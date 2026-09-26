@@ -26,7 +26,7 @@ final class TorrentCreatorTests: XCTestCase {
         XCTAssertEqual(result.info.files.count, 1)
         XCTAssertEqual(result.info.files[0].length, Int64(bytes.count))
         XCTAssertEqual(result.info.pieceLength, 256 * 1024)
-        XCTAssertEqual(result.info.infoHash.description, result.infoHash.description)
+        XCTAssertEqual(result.infoHash, result.info.infoHash)
         XCTAssertEqual(result.trackers, ["http://tracker.example/announce"])
 
         let reparsed = try TorrentInfo.parse(from: result.data)
