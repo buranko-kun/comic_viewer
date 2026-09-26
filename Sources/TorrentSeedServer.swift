@@ -343,7 +343,7 @@ private final class TorrentSeedPeer: @unchecked Sendable {
                 return
             }
 
-            guard let peerMetadataID, extensionID == peerMetadataID,
+            guard extensionID == TorrentMetadataWire.localExtensionID,
                   let requestPiece = TorrentMetadataWire.metadataRequestPiece(from: payload) else {
                 return
             }
