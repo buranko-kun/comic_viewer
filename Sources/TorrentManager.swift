@@ -327,6 +327,7 @@ final class TorrentManager {
         for handle in downloadHandles.values {
             let status = await handle.status()
             let id = status.infoHash.description
+            let wasSeeding = items.first { $0.id == id }?.state == .seeding
             update(
                 id: id,
                 name: status.name,
@@ -340,7 +341,7 @@ final class TorrentManager {
                 totalSize: status.totalSize
             )
 
-            if status.state == .seeding && (items.first { $0.id == id }?.state != .seeding) {
+            if status.state == .seeding && !wasSeeding {
                 LibraryModel.shared.rescan()
             }
         }
