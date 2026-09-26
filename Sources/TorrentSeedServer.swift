@@ -272,8 +272,8 @@ private final class TorrentSeedPeer: @unchecked Sendable {
         let metadataHandshake = TorrentMetadataWire.extendedHandshake(
             metadataSize: seed.metadata.count
         )
-        print("[TorrentSeedPeer] sending ut_metadata handshake metadataSize=(seed.metadata.count)")
-        send(PeerMessage.extended(id: TorrentMetadataWire.localExtensionID, payload: metadataHandshake).encode())
+        print("[TorrentSeedPeer] sending ut_metadata handshake metadataSize=\(seed.metadata.count)")
+        send(PeerMessage.extended(id: TorrentMetadataWire.handshakeExtensionID, payload: metadataHandshake).encode())
 
         if seed.info.pieceCount > 0 {
             let bitfield = allPieces(count: seed.info.pieceCount)
@@ -340,7 +340,7 @@ private final class TorrentSeedPeer: @unchecked Sendable {
             if extensionID == TorrentMetadataWire.handshakeExtensionID {
                 if let peerID = TorrentMetadataWire.peerMetadataExtensionID(from: payload) {
                     peerMetadataID = peerID
-                    print("[TorrentSeedPeer] peer ut_metadata extension id=(peerID)")
+                    print("[TorrentSeedPeer] peer ut_metadata extension id=\(peerID)")
                 }
                 return
             }
@@ -354,11 +354,11 @@ private final class TorrentSeedPeer: @unchecked Sendable {
                 piece: requestPiece,
                 metadata: seed.metadata
             ) else {
-                print("[TorrentSeedPeer] rejecting invalid metadata piece=(requestPiece)")
+                print("[TorrentSeedPeer] rejecting invalid metadata piece=\(requestPiece)")
                 return
             }
 
-            print("[TorrentSeedPeer] sending ut_metadata piece=(requestPiece)")
+            print("[TorrentSeedPeer] sending ut_metadata piece=\(requestPiece)")
             send(PeerMessage.extended(
                 id: TorrentMetadataWire.localExtensionID,
                 payload: metadataResponse
