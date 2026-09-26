@@ -389,18 +389,14 @@ final class TorrentManager {
                 var interval = 1800
                 for trackerURL in trackerURLs {
                     do {
-                        let response = try await HTTPTracker(announceURL: trackerURL).announce(
-                            params: AnnounceParams(
-                                infoHash: info.infoHash,
-                                peerID: self.seedServerPeerID,
-                                port: TorrentSettingsStore.shared.listenPort,
-                                uploaded: uploaded,
-                                downloaded: info.totalSize,
-                                left: 0,
-                                event: firstAnnounce ? "started" : nil
-                            )
+                        let responseInterval = try await self.announceSeedTracker(
+                            announceURL: trackerURL,
+                            infoHash: info.infoHash,
+                            uploaded: uploaded,
+                            totalSize: info.totalSize,
+                            event: firstAnnounce ? "started" : nil
                         )
-                        interval = max(60, response.interval)
+                        interval = max(60, responseInterval)
                         firstAnnounce = false
                         break
                     } catch {
@@ -413,13 +409,64 @@ final class TorrentManager {
         }
     }
 
+    private func announceSeedTracker(
+        announceURL: String,
+        infoHash: InfoHash,
+        uploaded: Int64,
+        totalSize: Int64,
+        event: String?
+    ) async throws -> Int {
+        guard let baseURL = URL(string: announceURL) else {
+            throw TorrentManagerError.invalidTrackerURL
+        }
+
+        var queryItems = [
+            "info_hash=\(infoHash.urlEncoded)",
+            "peer_id=\(String(data: seedServerPeerID, encoding: .ascii) ?? "")",
+            "port=\(TorrentSettingsStore.shared.listenPort)",
+            "uploaded=\(uploaded)",
+            "downloaded=\(totalSize)",
+            "left=0",
+            "compact=1",
+            "numwant=50"
+        ]
+
+        if let event {
+            queryItems.append("event=\(event)")
+        }
+
+        let separator = baseURL.query == nil ? "?" : "&"
+        let urlString = announceURL + separator + queryItems.joined(separator: "&")
+        guard let url = URL(string: urlString) else {
+            throw TorrentManagerError.invalidTrackerURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode) {
+            throw TorrentManagerError.trackerHTTPStatus(http.statusCode)
+        }
+
+        let value = try BencodeDecoder().decode(data)
+        if let failure = value["failure reason"]?.utf8String {
+            throw TorrentManagerError.trackerFailure(failure)
+        }
+
+        return value["interval"]?.integerValue.map(Int.init) ?? 1800
+    }
+
     private var seedServerPeerID: Data {
-        // The seeder server's peer ID is intentionally opaque. Trackers only require a stable 20-byte ID.
+        // HTTP trackers expect peer_id to be a 20-byte value. Keep it printable ASCII so URL
+        // construction is lossless and stable across app launches.
         let key = "ComicViewerTorrentPeerID"
-        if let data = UserDefaults.standard.data(forKey: key), data.count == 20 {
+        if let data = UserDefaults.standard.data(forKey: key),
+           data.count == 20,
+           String(data: data, encoding: .ascii) != nil {
             return data
         }
-        let generated = generatePeerID()
+
+        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)
+        let generated = Data("-CV0001-\(suffix)".utf8)
         UserDefaults.standard.set(generated, forKey: key)
         return generated
     }
@@ -430,16 +477,12 @@ final class TorrentManager {
         let uploaded = item.totalUploaded
         Task {
             for trackerURL in trackers where trackerURL.hasPrefix("http://") || trackerURL.hasPrefix("https://") {
-                _ = try? await HTTPTracker(announceURL: trackerURL).announce(
-                    params: AnnounceParams(
-                        infoHash: hash,
-                        peerID: seedServerPeerID,
-                        port: TorrentSettingsStore.shared.listenPort,
-                        uploaded: uploaded,
-                        downloaded: item.totalSize,
-                        left: 0,
-                        event: "stopped"
-                    )
+                _ = try? await announceSeedTracker(
+                    announceURL: trackerURL,
+                    infoHash: hash,
+                    uploaded: uploaded,
+                    totalSize: item.totalSize,
+                    event: "stopped"
                 )
             }
         }
@@ -570,11 +613,17 @@ final class TorrentManager {
 enum TorrentManagerError: LocalizedError {
     case invalidTorrent
     case sessionUnavailable
+    case invalidTrackerURL
+    case trackerHTTPStatus(Int)
+    case trackerFailure(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidTorrent: return "The torrent metadata is invalid."
         case .sessionUnavailable: return "The BitTorrent session is unavailable."
+        case .invalidTrackerURL: return "The configured tracker URL is invalid."
+        case .trackerHTTPStatus(let status): return "Tracker returned HTTP status \(status)."
+        case .trackerFailure(let message): return "Tracker rejected the announce: \(message)"
         }
     }
 }
