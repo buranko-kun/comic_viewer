@@ -9,6 +9,9 @@ struct ReaderNavigation {
     private(set) var index = 0
     private(set) var spreadEnabled = false
     private(set) var coverAloneInSpread = true
+
+    /// Page indices whose decoded image is wide enough to occupy a spread by itself.
+    private var widePages: Set<Int> = []
     private(set) var chapters: Set<String> = []
     private(set) var chapterNames: [String: String] = [:]
 
@@ -20,6 +23,7 @@ struct ReaderNavigation {
         self.items = items
         self.folder = folder
         self.coverAloneInSpread = coverAloneInSpread
+        widePages = []
         index = 0
         resetState()
         loadBookmarkChapters()
@@ -84,15 +88,26 @@ struct ReaderNavigation {
 
     @discardableResult
     mutating func next() -> Bool {
-        move(spreadEnabled ? 2 : 1)
+        guard spreadEnabled else { return move(1) }
+
+        if widePages.contains(index) || widePages.contains(index + 1) {
+            return move(1)
+        }
+        return move(2)
     }
 
     @discardableResult
     mutating func prev() -> Bool {
-        if spreadEnabled, coverAloneInSpread, index == 1 {
+        guard spreadEnabled else { return move(-1) }
+
+        if coverAloneInSpread, index == 1 {
             return setIndex(0)
         }
-        return move(spreadEnabled ? -2 : -1)
+
+        if widePages.contains(index - 1) {
+            return move(-1)
+        }
+        return move(-2)
     }
 
     @discardableResult
@@ -141,6 +156,17 @@ struct ReaderNavigation {
         let newState = !spreadEnabled
         _ = setSpreadEnabled(newState)
         return newState ? "Two-page spread" : "Single page"
+    }
+
+    /// Records whether a decoded page should occupy a spread by itself.
+    /// Unknown pages are treated as normal portrait pages until they are decoded.
+    mutating func setPageWide(index: Int, isWide: Bool) {
+        guard items.indices.contains(index) else { return }
+        if isWide {
+            widePages.insert(index)
+        } else {
+            widePages.remove(index)
+        }
     }
 
     // MARK: Chapters
@@ -325,22 +351,36 @@ struct ReaderNavigation {
     }
 
     /// First logical page of the visible spread containing an index.
-    /// With cover-alone enabled: 0 is the cover, then 1–2, 3–4, 5–6, …
+    /// Wide pages are standalone. Otherwise pages pair sequentially, with an optional standalone cover.
     private func spreadStart(for index: Int) -> Int {
         guard spreadEnabled else { return index }
+        guard items.indices.contains(index) else { return index }
 
-        if coverAloneInSpread {
-            guard index > 0 else { return 0 }
-            return 1 + ((index - 1) / 2) * 2
+        var start = coverAloneInSpread ? 1 : 0
+        if index == 0 { return 0 }
+
+        while start < index {
+            if widePages.contains(start) {
+                start += 1
+                continue
+            }
+
+            let next = start + 1
+            if next >= items.count || widePages.contains(next) {
+                start += 1
+            } else {
+                start += 2
+            }
         }
 
-        return index - (index % 2)
+        return start
     }
 
     /// The next page shown alongside the current page in spread mode, if there is one.
     var secondaryIndex: Int? {
         guard spreadEnabled, items.indices.contains(index + 1) else { return nil }
         if coverAloneInSpread, index == 0 { return nil }
+        guard !widePages.contains(index), !widePages.contains(index + 1) else { return nil }
         return index + 1
     }
 
