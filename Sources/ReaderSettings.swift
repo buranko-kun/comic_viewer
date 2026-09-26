@@ -85,6 +85,11 @@ final class ReaderSettings {
         didSet { UserDefaults.standard.set(timelineScope.rawValue, forKey: Keys.timelineScope) }
     }
 
+    /// Use two-page spread when a comic opens.
+    var twoPageSpread: Bool {
+        didSet { UserDefaults.standard.set(twoPageSpread, forKey: Keys.twoPageSpread) }
+    }
+
     /// Keep the first page/cover alone when two-page spread is enabled, then pair pages 2–3, 4–5, …
     var coverAloneInSpread: Bool {
         didSet { UserDefaults.standard.set(coverAloneInSpread, forKey: Keys.coverAloneInSpread) }
@@ -105,6 +110,7 @@ final class ReaderSettings {
         static let progressBar = "reader.showProgressBar"
         static let chapterMarkers = "reader.showChapterMarkers"
         static let timelineScope = "reader.timelineScope"
+        static let twoPageSpread = "reader.twoPageSpread"
         static let coverAloneInSpread = "reader.coverAloneInSpread"
         static let spreadGutter = "reader.spreadGutter"
         static let readingDirection = "reader.readingDirection"
@@ -120,6 +126,7 @@ final class ReaderSettings {
         timelineScope = TimelineScope(
             rawValue: d.string(forKey: Keys.timelineScope) ?? ""
         ) ?? .issue
+        twoPageSpread = d.object(forKey: Keys.twoPageSpread) as? Bool ?? false
         coverAloneInSpread = d.object(forKey: Keys.coverAloneInSpread) as? Bool ?? true
         let savedGutter = d.object(forKey: Keys.spreadGutter) as? Double ?? 12
         spreadGutter = min(max(savedGutter, 0), 48)
