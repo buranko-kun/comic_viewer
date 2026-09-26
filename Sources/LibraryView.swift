@@ -31,6 +31,7 @@ struct LibraryView: View {
     @State private var localSearchText = ""
     @State private var localFilter: LocalFilter = .all
     @State private var localSort: LocalSort = .title
+    @State private var pendingTorrentSource: URL?
 
     private enum LocalFilter: String, CaseIterable, Identifiable {
         case all
@@ -142,6 +143,14 @@ struct LibraryView: View {
                                  library.delete(comic, fromDisk: fromDisk)
                                  pendingDelete = nil
                              })
+        }
+        .sheet(isPresented: Binding(
+            get: { pendingTorrentSource != nil },
+            set: { if !$0 { pendingTorrentSource = nil } }
+        )) {
+            if let source = pendingTorrentSource {
+                CreateTorrentSheet(sourceURL: source)
+            }
         }
         .onAppear {
             swipeBack.onBack = { router.escapeBack() }
@@ -462,6 +471,8 @@ struct LibraryView: View {
         if comic.progress != nil {
             Button("Reset Reading") { library.resetState(comic) }
         }
+        Button("Create Torrent…") { pendingTorrentSource = comic.url }
+        Divider()
         Button("Delete…", role: .destructive) { pendingDelete = comic }
     }
 
@@ -478,6 +489,8 @@ struct LibraryView: View {
             Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
                 .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
             DownloadQueueButton()
+            TorrentQueueButton()
+            TorrentQueueButton()
             Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
                 .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
             Button { library.rescan() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
