@@ -233,6 +233,7 @@ private final class TorrentSeedPeer: @unchecked Sendable {
                     }
                     self.queue.async {
                         self.seed = seed
+                        print("[TorrentSeedPeer] handshake accepted hash=\(seed.info.infoHash.description) pieces=\(seed.info.pieceCount) pieceLength=\(seed.info.pieceLength) totalSize=\(seed.info.totalSize)")
                         self.onReady(self.id, seed.info.infoHash.description)
                         self.sendInitialState(seed: seed)
                     }
@@ -253,14 +254,11 @@ private final class TorrentSeedPeer: @unchecked Sendable {
         ).encode()
         send(response)
         if seed.info.pieceCount > 0 {
-            send(PeerMessage.bitfield(allPieces(count: seed.info.pieceCount)).encode())
-
-            // Some clients are conservative about the trailing bits in a bitfield. Explicit HAVE
-            // messages make the complete piece availability unambiguous after the handshake.
-            for index in 0..<seed.info.pieceCount {
-                send(PeerMessage.have(pieceIndex: UInt32(index)).encode())
-            }
+            let bitfield = allPieces(count: seed.info.pieceCount)
+            print("[TorrentSeedPeer] sending bitfield bytes=\(bitfield.count) hex=\(bitfield.map { String(format: "%02x", $0) }.joined())")
+            send(PeerMessage.bitfield(bitfield).encode())
         }
+        print("[TorrentSeedPeer] sending unchoke")
         send(PeerMessage.unchoke.encode())
         receiveMessages()
     }
@@ -300,9 +298,11 @@ private final class TorrentSeedPeer: @unchecked Sendable {
             }
 
             guard let message = try? PeerMessage.decode(from: payload) else {
+                print("[TorrentSeedPeer] failed to decode peer frame length=\(length) payload=\(payload.prefix(32).map { String(format: "%02x", $0) }.joined(separator: " "))")
                 continue
             }
 
+            print("[TorrentSeedPeer] received \(message)")
             handle(message)
             if closed { return }
         }
@@ -313,9 +313,14 @@ private final class TorrentSeedPeer: @unchecked Sendable {
 
         switch message {
         case .interested:
+            print("[TorrentSeedPeer] peer is INTERESTED -> unchoking")
             send(PeerMessage.unchoke.encode())
 
+        case .notInterested:
+            print("[TorrentSeedPeer] peer is NOT INTERESTED")
+
         case .request(let index, let begin, let length):
+            print("[TorrentSeedPeer] request index=\(index) begin=\(begin) length=\(length)")
             guard length > 0, length <= 16 * 1024 else { return }
             let pieceIndex = Int(index)
             let offset = Int(begin)
@@ -331,6 +336,7 @@ private final class TorrentSeedPeer: @unchecked Sendable {
                     begin: offset,
                     length: Int(length)
                 )
+                print("[TorrentSeedPeer] sending piece index=\(index) begin=\(begin) bytes=\(block.count)")
                 send(PeerMessage.piece(index: index, begin: begin, block: block).encode())
                 onUpload(id, Int64(block.count))
             } catch {
