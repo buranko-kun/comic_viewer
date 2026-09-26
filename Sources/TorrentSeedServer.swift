@@ -248,9 +248,13 @@ private final class TorrentSeedPeer: @unchecked Sendable {
     }
 
     private func sendInitialState(seed: TorrentSeedServer.SeedContext) {
+        // This seeder does not implement BEP-10 extensions, so do not advertise
+        // extension support in the handshake. Otherwise clients such as qBittorrent may
+        // initiate an extended handshake that we cannot answer.
         let response = Handshake(
             infoHash: seed.info.infoHash.bytes,
-            peerID: peerID
+            peerID: peerID,
+            reserved: Data(count: 8)
         ).encode()
         send(response)
         if seed.info.pieceCount > 0 {
