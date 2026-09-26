@@ -355,11 +355,14 @@ struct ReaderNavigation {
     private func spreadStart(for index: Int) -> Int {
         guard spreadEnabled else { return index }
         guard items.indices.contains(index) else { return index }
-
-        var start = coverAloneInSpread ? 1 : 0
         if index == 0 { return 0 }
 
-        while start < index {
+        var start = coverAloneInSpread ? 1 : 0
+        while start < items.count {
+            if start == index {
+                return start
+            }
+
             if widePages.contains(start) {
                 start += 1
                 continue
@@ -368,12 +371,14 @@ struct ReaderNavigation {
             let next = start + 1
             if next >= items.count || widePages.contains(next) {
                 start += 1
+            } else if index <= next {
+                return start
             } else {
                 start += 2
             }
         }
 
-        return start
+        return index
     }
 
     /// The next page shown alongside the current page in spread mode, if there is one.
