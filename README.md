@@ -70,3 +70,10 @@ The macOS Online browser supports installable JavaScript source plugins. A plugi
 rules and DOM scraper, so new comic sites can be added without modifying or forking the app.
 
 See [SOURCE_PLUGINS.md](SOURCE_PLUGINS.md) and [examples/source-plugin-template.js](examples/source-plugin-template.js).
+
+
+## Torrent sharing
+
+The macOS app can create BitTorrent v1 torrents from comics, folders, or series, seed them directly
+from the original files, copy magnet links, and download `.torrent` files or magnets. See
+[TORRENTS.md](TORRENTS.md).

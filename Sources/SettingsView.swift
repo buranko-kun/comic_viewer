@@ -25,6 +25,8 @@ struct SettingsView: View {
                 .tabItem { Label("Backup", systemImage: "arrow.up.arrow.down") }
             DownloadsSettingsTab()
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+            TorrentSettingsTab()
+                .tabItem { Label("Torrents", systemImage: "arrow.triangle.2.circlepath") }
             ConnectTab()
                 .tabItem { Label("Connect", systemImage: "network") }
             SharingTab()

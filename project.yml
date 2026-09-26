@@ -20,6 +20,9 @@ packages:
   Swifter:
     url: https://github.com/httpswift/swifter.git
     from: "1.5.0"
+  SwiftTorrent:
+    url: https://github.com/warppipe/swift-torrent.git
+    revision: "79ab342c50621d69bce0d6f61228fcaf70c4ae48"
 
 targets:
   ComicViewer:
@@ -31,8 +34,11 @@ targets:
     dependencies:
       - package: Swifter
         product: Swifter
+      - package: SwiftTorrent
+        product: SwiftTorrent
     frameworks:
       - WebKit
+      - Network
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.esteban.ComicViewer

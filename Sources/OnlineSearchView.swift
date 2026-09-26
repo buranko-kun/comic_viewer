@@ -125,6 +125,7 @@ struct OnlineSearchView: View {
             .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
 
             DownloadQueueButton()
+            TorrentQueueButton()
 
             Button { router.showCollections() } label: {
                 Label("Collections", systemImage: "rectangle.stack")

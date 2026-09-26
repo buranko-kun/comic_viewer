@@ -285,3 +285,13 @@ which app macOS will actually use for a file: `NSWorkspace.shared.urlForApplicat
 - Plugins are versioned by manifest.id, can be enabled or disabled independently, and can be updated or removed from Preferences.
 - Plugin child catalogs retain a sourceID, so drilled folders route back through the owning plugin.
 - Headless smoke test: ComicViewer --sourceplugintest.
+
+
+## Torrent sharing
+
+- `TorrentCreator.swift` creates deterministic BitTorrent v1 info dictionaries and hashes source files incrementally.
+- `TorrentSeedServer.swift` provides one macOS TCP listener that can seed multiple active torrents from their original local files.
+- `TorrentManager.swift` owns the torrent session, seeding state, tracker announcements, persistence, and download/import state.
+- `TorrentsView.swift` exposes create, seed, magnet import, `.torrent` import, tracker settings, and seeding controls.
+- SwiftTorrent is pinned in `project.yml` so the torrent backend is reproducible.
+- The built-in seeder uses the configured HTTP(S) trackers. UDP trackers remain valid for exported metadata and downloader use.

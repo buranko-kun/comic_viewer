@@ -365,6 +365,7 @@ struct BrowseView: View {
                 Button { selecting = true } label: { Image(systemName: "checkmark.circle") }
                     .help("Select comics").pointingHandCursor()
                 DownloadQueueButton()
+                TorrentQueueButton()
                 Button { router.showCollections() } label: { Image(systemName: "rectangle.stack") }
                     .help("Collections").pointingHandCursor()
                 Button { Task { await aggregator.loadRoots() } } label: {

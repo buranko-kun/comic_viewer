@@ -123,7 +123,7 @@ enum ReadComicsTest {
         check("catalog decodes entity in title", entries.last?.title == "Zorro's Legacy (2019)")
         check("catalog pagination max = 159", pageCount == 159)
 
-        if failures > 0 {
+        guard failures == 0 else {
             print("\n\(failures) FAILED")
             preconditionFailure("\(failures) ReadComics tests failed")
         }
