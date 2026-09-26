@@ -265,10 +265,17 @@ private struct ReaderTab: View {
 
                 GroupBox("Reading") {
                     VStack(alignment: .leading, spacing: 12) {
-                        settingPicker(
-                            "Default view",
-                            selection: $s.defaultView
-                        )
+                        HStack(spacing: 14) {
+                            Text("Default view")
+                                .frame(width: 132, alignment: .leading)
+                            Picker("Default view", selection: $s.defaultView) {
+                                ForEach(ReaderSettings.DefaultView.allCases) {
+                                    Text($0.label).tag($0)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
 
                         Text("Horizontal keeps pages as-is. Vertical rotates portrait pages.")
                             .font(.caption)
@@ -276,10 +283,17 @@ private struct ReaderTab: View {
 
                         Divider()
 
-                        settingPicker(
-                            "Reading direction",
-                            selection: $s.readingDirection
-                        )
+                        HStack(spacing: 14) {
+                            Text("Reading direction")
+                                .frame(width: 132, alignment: .leading)
+                            Picker("Reading direction", selection: $s.readingDirection) {
+                                ForEach(ReaderSettings.ReadingDirection.allCases) {
+                                    Text($0.label).tag($0)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
 
                         Text("Also reverses horizontal navigation.")
                             .font(.caption)
@@ -302,10 +316,17 @@ private struct ReaderTab: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle("Show reading timeline", isOn: $s.showProgressBar)
 
-                        settingPicker(
-                            "Timeline scope",
-                            selection: $s.timelineScope
-                        )
+                        HStack(spacing: 14) {
+                            Text("Timeline")
+                                .frame(width: 132, alignment: .leading)
+                            Picker("Timeline", selection: $s.timelineScope) {
+                                ForEach(ReaderSettings.TimelineScope.allCases) {
+                                    Text($0.label).tag($0)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
 
                         Text("Chapter, issue, or series.")
                             .font(.caption)
@@ -337,7 +358,6 @@ private struct ReaderTab: View {
                         Divider()
 
                         Toggle("Keep cover page alone", isOn: $s.coverAloneInSpread)
-                            .disabled(!s.twoPageSpread)
 
                         Text("Page 1 stays alone, then pages pair from 2–3.")
                             .font(.caption)
@@ -358,35 +378,6 @@ private struct ReaderTab: View {
                 }
             }
             .padding(20)
-        }
-    }
-
-    @ViewBuilder
-    private func settingPicker<T: Hashable & Identifiable>(
-        _ title: String,
-        selection: Binding<T>
-    ) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            Text(title)
-                .frame(width: 132, alignment: .leading)
-
-            Picker(title, selection: selection) {
-                if T.self == ReaderSettings.DefaultView.self {
-                    ForEach(ReaderSettings.DefaultView.allCases) {
-                        Text($0.label).tag($0 as T)
-                    }
-                } else if T.self == ReaderSettings.ReadingDirection.self {
-                    ForEach(ReaderSettings.ReadingDirection.allCases) {
-                        Text($0.label).tag($0 as T)
-                    }
-                } else if T.self == ReaderSettings.TimelineScope.self {
-                    ForEach(ReaderSettings.TimelineScope.allCases) {
-                        Text($0.label).tag($0 as T)
-                    }
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 300)
         }
     }
 }
