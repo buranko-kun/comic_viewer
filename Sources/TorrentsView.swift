@@ -229,7 +229,7 @@ private struct TorrentRow: View {
                 .help("Copy magnet link")
                 .pointingHandCursor()
 
-                ShareLink("Share magnet", item: item.magnet) {
+                ShareLink(item: item.magnet) {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderless)
@@ -237,7 +237,7 @@ private struct TorrentRow: View {
                 .pointingHandCursor()
 
                 if let torrentURL = item.torrentURL {
-                    ShareLink("Share .torrent", item: torrentURL) {
+                    ShareLink(item: torrentURL) {
                         Image(systemName: "square.and.arrow.up.on.square")
                     }
                     .buttonStyle(.borderless)
@@ -409,13 +409,13 @@ struct CreateTorrentSheet: View {
                     }
                     .pointingHandCursor()
 
-                    ShareLink("Share Magnet", item: createdMagnet) {
+                    ShareLink(item: createdMagnet) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     .pointingHandCursor()
 
                     if let createdTorrentURL {
-                        ShareLink("Share .torrent", item: createdTorrentURL) {
+                        ShareLink(item: createdTorrentURL) {
                             Label("Share .torrent", systemImage: "square.and.arrow.up.on.square")
                         }
                         .pointingHandCursor()
