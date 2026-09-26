@@ -110,31 +110,36 @@ struct ReaderNavigation {
         setIndex(index)
     }
 
-    /// Toggles the two-page spread and returns the user-facing status message.
-    ///
-    /// When enabling spread on an odd page, the visible index is aligned to the preceding even
-    /// page while the odd page remains the persisted resume target, matching the previous behavior.
-    mutating func toggleSpread() -> String {
-        if spreadEnabled {
+    /// Sets two-page spread mode and keeps the logical resume page intact.
+    @discardableResult
+    mutating func setSpreadEnabled(_ enabled: Bool) -> Bool {
+        guard spreadEnabled != enabled else { return false }
+
+        if enabled {
+            spreadEnabled = true
+            guard items.indices.contains(index) else { return true }
+
+            let resumeKey = pageKey(for: items[index])
+            let normalized = spreadStart(for: index)
+            if normalized != index {
+                index = normalized
+                lastPage = resumeKey
+            }
+        } else {
             spreadEnabled = false
             if let lastPage,
                let savedIndex = items.firstIndex(where: { pageKey(for: $0) == lastPage }) {
                 index = savedIndex
             }
-            return "Single page"
         }
 
-        spreadEnabled = true
-        guard items.indices.contains(index) else { return "Two-page spread" }
+        return true
+    }
 
-        let resumeKey = pageKey(for: items[index])
-        let normalized = spreadStart(for: index)
-        if normalized != index {
-            index = normalized
-            lastPage = resumeKey
-        }
-
-        return "Two-page spread"
+    /// Toggles the two-page spread and returns the user-facing status message.
+    mutating func toggleSpread() -> String {
+        let enabled = setSpreadEnabled(!spreadEnabled)
+        return (enabled && spreadEnabled) ? "Two-page spread" : "Single page"
     }
 
     // MARK: Chapters
