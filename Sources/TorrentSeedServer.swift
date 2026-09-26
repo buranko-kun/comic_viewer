@@ -107,6 +107,7 @@ final class TorrentSeedServer {
                         onUpload: { [weak self] id, bytes in
                             Task { @MainActor in
                                 guard let self, let hash = self.peerHashes[id] else { return }
+                                self.recordExternalUpload(infoHash: hash, bytes: bytes)
                                 self.onUpload?(hash, bytes)
                             }
                         },
