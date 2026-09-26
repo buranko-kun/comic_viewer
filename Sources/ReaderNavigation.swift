@@ -288,10 +288,11 @@ struct ReaderNavigation {
 
         if spreadEnabled {
             var result: [URL] = []
+            if index + 1 < items.count { result.append(items[index + 1]) }
             if index + 2 < items.count { result.append(items[index + 2]) }
             if index + 3 < items.count { result.append(items[index + 3]) }
-            if index > 1 { result.append(items[index - 2]) }
             if index > 0 { result.append(items[index - 1]) }
+            if index > 1 { result.append(items[index - 2]) }
             return result
         }
 
