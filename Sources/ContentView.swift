@@ -342,10 +342,11 @@ struct ContentView: View {
            let second = model.secondary {
             let (left, right) = readerSettings.readingDirection.arrangeSpread(first, second)
 
-            HStack(spacing: max(0, readerSettings.spreadGutter)) {
+            HStack(spacing: 0) {
                 RotatingImageView(image: left, rotate: false)
                 RotatingImageView(image: right, rotate: false)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let img = model.current {
             RotatingImageView(image: img, rotate: model.readingPortrait)
         }
