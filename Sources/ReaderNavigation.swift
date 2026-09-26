@@ -138,8 +138,9 @@ struct ReaderNavigation {
 
     /// Toggles the two-page spread and returns the user-facing status message.
     mutating func toggleSpread() -> String {
-        let enabled = setSpreadEnabled(!spreadEnabled)
-        return (enabled && spreadEnabled) ? "Two-page spread" : "Single page"
+        let newState = !spreadEnabled
+        _ = setSpreadEnabled(newState)
+        return newState ? "Two-page spread" : "Single page"
     }
 
     // MARK: Chapters
