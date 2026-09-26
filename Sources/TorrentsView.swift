@@ -229,6 +229,22 @@ private struct TorrentRow: View {
                 .help("Copy magnet link")
                 .pointingHandCursor()
 
+                ShareLink("Share magnet", item: item.magnet) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderless)
+                .help("Share magnet link")
+                .pointingHandCursor()
+
+                if let torrentURL = item.torrentURL {
+                    ShareLink("Share .torrent", item: torrentURL) {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Share .torrent file")
+                    .pointingHandCursor()
+                }
+
                 if item.state == .downloading || item.state == .seeding {
                     Button {
                         manager.pause(item)
@@ -393,7 +409,17 @@ struct CreateTorrentSheet: View {
                     }
                     .pointingHandCursor()
 
+                    ShareLink("Share Magnet", item: createdMagnet) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .pointingHandCursor()
+
                     if let createdTorrentURL {
+                        ShareLink("Share .torrent", item: createdTorrentURL) {
+                            Label("Share .torrent", systemImage: "square.and.arrow.up.on.square")
+                        }
+                        .pointingHandCursor()
+
                         Button("Show .torrent") {
                             NSWorkspace.shared.activateFileViewerSelecting([createdTorrentURL])
                         }
