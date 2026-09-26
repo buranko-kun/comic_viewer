@@ -235,8 +235,10 @@ final class ReaderSession {
         loadTask?.cancel()
         loadToken += 1
         let token = loadToken
+        let pageIndex = index
         let url = items[index]
-        let secondURL = navigation.secondaryIndex.map { items[$0] }
+        let secondIndex = navigation.secondaryIndex
+        let secondURL = secondIndex.map { items[$0] }
         let maxPixel = Self.displayMaxPixel()
         let source = source
 
@@ -254,6 +256,13 @@ final class ReaderSession {
             )
 
             guard !Task.isCancelled, token == loadToken else { return }
+            if let img {
+                navigation.setPageWide(index: pageIndex, isWide: !img.isPortrait)
+            }
+            if let img2, let secondIndex {
+                navigation.setPageWide(index: secondIndex, isWide: !img2.isPortrait)
+            }
+
             current = img
             renderTick &+= 1
 
@@ -264,7 +273,7 @@ final class ReaderSession {
                 )
                 self.openStartedAt = nil
             }
-            secondary = img2
+            secondary = (img?.isPortrait == true && img2?.isPortrait == true) ? img2 : nil
             failedName = (img == nil) ? url.lastPathComponent : nil
             failedURL = (img == nil) ? url : nil
 
