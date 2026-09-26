@@ -38,6 +38,7 @@ targets:
         product: SwiftTorrent
     frameworks:
       - WebKit
+      - Network
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.esteban.ComicViewer
