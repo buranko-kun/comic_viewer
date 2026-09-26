@@ -53,6 +53,22 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertEqual(navigation.index, 0)
     }
 
+    func testExplicitSpreadStatePreservesLogicalResumePage() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 5)
+
+        navigation.configure(items: pages, folder: nil, coverAloneInSpread: true)
+        XCTAssertTrue(navigation.goTo(index: 2))
+        XCTAssertTrue(navigation.setSpreadEnabled(true))
+        XCTAssertEqual(navigation.index, 1)
+
+        let state = navigation.makeState(comicKey: nil)
+        XCTAssertEqual(state.lastPage, pages[2].absoluteString)
+
+        XCTAssertTrue(navigation.setSpreadEnabled(false))
+        XCTAssertEqual(navigation.index, 2)
+    }
+
     func testDisablingSpreadRestoresLogicalResumePage() {
         var navigation = ReaderNavigation()
         let pages = makePages(count: 5)
