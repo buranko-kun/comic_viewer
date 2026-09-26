@@ -6,6 +6,7 @@ import SwiftTorrent
 
 /// BitTorrent sharing and download panel.
 struct TorrentsView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var manager = TorrentManager.shared
     @State private var showCreate = false
     @State private var showAddMagnet = false
@@ -77,7 +78,7 @@ struct TorrentsView: View {
                 .pointingHandCursor()
 
                 Button("Done") {
-                    dismissWindow()
+                    dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
                 .pointingHandCursor()
@@ -508,5 +509,94 @@ private struct AddMagnetSheet: View {
         guard isValid else { return }
         onAdd(text.trimmingCharacters(in: .whitespacesAndNewlines))
         dismiss()
+    }
+}
+
+
+/// Preferences → Torrents: configure the tracker URLs embedded in newly created torrents and the
+/// TCP port used by ComicViewer's built-in seeder.
+struct TorrentSettingsTab: View {
+    @State private var trackerText = TorrentSettingsStore.shared.trackerText
+    @State private var portText = String(TorrentSettingsStore.shared.listenPort)
+    @State private var note: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Torrents").font(.headline)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Seeder port").font(.body.weight(.medium))
+                    HStack {
+                        TextField("6881", text: $portText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .onSubmit(savePort)
+                        Button("Save", action: savePort)
+                            .pointingHandCursor()
+                    }
+                    Text("ComicViewer accepts incoming BitTorrent peers on this TCP port. Router/NAT port forwarding may be required for peers outside your network.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tracker URLs").font(.body.weight(.medium))
+                    Text("One HTTP(S) or UDP tracker URL per line. Newly created torrents embed these URLs. The built-in seeder announces to HTTP(S) trackers.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $trackerText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 150)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(.white.opacity(0.12))
+                        )
+                        .onChange(of: trackerText) { _, value in
+                            TorrentSettingsStore.shared.trackerText = value
+                        }
+
+                    HStack {
+                        Button("Reset defaults") {
+                            trackerText = TorrentSettingsStore.defaultTrackers.joined(separator: "\n")
+                        }
+                        .buttonStyle(.borderless)
+                        .pointingHandCursor()
+
+                        Spacer()
+
+                        Button("Refresh") {
+                            trackerText = TorrentSettingsStore.shared.trackerText
+                            portText = String(TorrentSettingsStore.shared.listenPort)
+                        }
+                        .buttonStyle(.borderless)
+                        .pointingHandCursor()
+                    }
+                }
+
+                Text("Public tracker availability changes over time. You can replace these URLs with your own tracker or private tracker settings.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                if let note {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    private func savePort() {
+        guard let value = UInt16(portText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value > 0 else {
+            note = "Port must be between 1 and 65535."
+            return
+        }
+        TorrentSettingsStore.shared.listenPort = value
+        portText = String(value)
+        note = "Port saved. Restart active seeding after changing the port."
     }
 }
