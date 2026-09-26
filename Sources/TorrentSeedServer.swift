@@ -254,6 +254,12 @@ private final class TorrentSeedPeer: @unchecked Sendable {
         send(response)
         if seed.info.pieceCount > 0 {
             send(PeerMessage.bitfield(allPieces(count: seed.info.pieceCount)).encode())
+
+            // Some clients are conservative about the trailing bits in a bitfield. Explicit HAVE
+            // messages make the complete piece availability unambiguous after the handshake.
+            for index in 0..<seed.info.pieceCount {
+                send(PeerMessage.have(pieceIndex: UInt32(index)).encode())
+            }
         }
         send(PeerMessage.unchoke.encode())
         receiveMessages()
