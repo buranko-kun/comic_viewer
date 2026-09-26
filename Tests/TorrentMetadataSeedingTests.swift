@@ -5,7 +5,7 @@ import SwiftTorrent
 final class TorrentMetadataSeedingTests: XCTestCase {
     func testExtractsExactInfoDictionaryFromTorrent() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ComicViewerTorrentMetadataTest-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ComicViewerTorrentMetadataTest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -30,6 +30,18 @@ final class TorrentMetadataSeedingTests: XCTestCase {
     func testExtendedHandshakeAdvertisesUtMetadataAndSize() throws {
         let payload = TorrentMetadataWire.extendedHandshake(metadataSize: 12_345)
         let value = try BencodeDecoder().decode(payload)
+        let wireMessage = PeerMessage.extended(
+            id: TorrentMetadataWire.handshakeExtensionID,
+            payload: payload
+        ).encode()
+        let decodedWireMessage = try PeerMessage.decode(
+            from: Data(wireMessage.dropFirst(4))
+        )
+
+        XCTAssertEqual(
+            decodedWireMessage,
+            .extended(id: TorrentMetadataWire.handshakeExtensionID, payload: payload)
+        )
 
         XCTAssertEqual(
             value["m"]?["ut_metadata"]?.integerValue,
