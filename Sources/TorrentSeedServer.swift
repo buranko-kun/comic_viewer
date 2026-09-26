@@ -335,8 +335,6 @@ private final class TorrentSeedPeer: @unchecked Sendable {
 
         switch message {
         case .extended(let extensionID, let payload):
-            guard let seed else { return }
-
             if extensionID == TorrentMetadataWire.handshakeExtensionID {
                 if let peerID = TorrentMetadataWire.peerMetadataExtensionID(from: payload) {
                     peerMetadataID = peerID
