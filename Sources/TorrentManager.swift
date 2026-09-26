@@ -387,6 +387,7 @@ final class TorrentManager {
                 }
 
                 var interval = 1800
+                var firstAnnounce = true
                 for trackerURL in trackerURLs {
                     do {
                         let response = try await HTTPTracker(announceURL: trackerURL).announce(
@@ -397,10 +398,11 @@ final class TorrentManager {
                                 uploaded: uploaded,
                                 downloaded: info.totalSize,
                                 left: 0,
-                                event: "started"
+                                event: firstAnnounce ? "started" : nil
                             )
                         )
                         interval = max(60, response.interval)
+                        firstAnnounce = false
                         break
                     } catch {
                         continue
@@ -424,7 +426,7 @@ final class TorrentManager {
     }
 
     private func stopAnnouncing(_ item: Item) {
-        guard let hash = try? InfoHash(hex: item.id) else { return }
+        guard let hash = InfoHash(hex: item.id) else { return }
         let trackers = TorrentSettingsStore.shared.trackers
         let uploaded = item.totalUploaded
         Task {
