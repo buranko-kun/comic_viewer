@@ -68,7 +68,7 @@ final class TorrentManager {
 
     struct Item: Identifiable, Equatable {
         let id: String
-        let name: String
+        var name: String
         let infoHash: String
         let magnet: String
         let totalSize: Int64
@@ -368,7 +368,6 @@ final class TorrentManager {
     }
 
     private func recordUpload(infoHash: String, bytes: Int64) {
-        seedServer.recordExternalUpload(infoHash: infoHash, bytes: bytes)
         itemUpdate(infoHash) { item in
             item.totalUploaded += bytes
             item.uploadRate += Double(bytes)
@@ -503,12 +502,14 @@ final class TorrentManager {
               let entries = try? JSONDecoder().decode([StoredSeed].self, from: data) else { return }
 
         for entry in entries {
-            guard let sourceURL = URL(string: "file://" + entry.sourcePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""),
-                  let torrentURL = URL(string: "file://" + entry.torrentPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""),
-                  FileManager.default.fileExists(atPath: sourceURL.path),
-                  FileManager.default.fileExists(atPath: torrentURL.path),
-                  let torrentData = try? Data(contentsOf: torrentURL),
-                  let info = try? TorrentInfo.parse(from: torrentData) else {
+            let sourceURL = URL(fileURLWithPath: entry.sourcePath).standardizedFileURL
+            let torrentURL = URL(fileURLWithPath: entry.torrentPath).standardizedFileURL
+            guard
+                FileManager.default.fileExists(atPath: sourceURL.path),
+                FileManager.default.fileExists(atPath: torrentURL.path),
+                let torrentData = try? Data(contentsOf: torrentURL),
+                let info = try? TorrentInfo.parse(from: torrentData)
+            else {
                 continue
             }
 
