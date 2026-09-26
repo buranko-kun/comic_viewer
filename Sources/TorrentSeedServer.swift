@@ -25,11 +25,41 @@ final class TorrentSeedServer {
     private var seeds: [String: SeedContext] = [:]
     private var peers: [UUID: TorrentSeedPeer] = [:]
     private var peerHashes: [UUID: String] = [:]
+    private var uploadedByHash: [String: Int64] = [:]
+    private var rateSamples: [String: (date: Date, bytes: Int64)] = [:]
     private let peerID = generatePeerID()
 
     var peerCount: Int { peers.count }
 
     var onUpload: ((String, Int64) -> Void)?
+
+    func peerCount(for infoHash: String) -> Int {
+        peerHashes.values.filter { $0 == infoHash }.count
+    }
+
+    func uploadedBytes(for infoHash: String) -> Int64 {
+        uploadedByHash[infoHash] ?? 0
+    }
+
+    func uploadRate(for infoHash: String) -> Double {
+        let currentBytes = uploadedByHash[infoHash] ?? 0
+        let now = Date()
+
+        guard let sample = rateSamples[infoHash] else {
+            rateSamples[infoHash] = (now, currentBytes)
+            return 0
+        }
+
+        let elapsed = now.timeIntervalSince(sample.date)
+        guard elapsed > 0 else { return 0 }
+
+        rateSamples[infoHash] = (now, currentBytes)
+        return Double(max(0, currentBytes - sample.bytes)) / elapsed
+    }
+
+    func recordExternalUpload(infoHash: String, bytes: Int64) {
+        uploadedByHash[infoHash, default: 0] += bytes
+    }
 
     func start(port: UInt16 = defaultPort) throws {
         guard listener == nil else { return }
@@ -101,11 +131,16 @@ final class TorrentSeedServer {
     }
 
     func addSeed(info: TorrentInfo, sourceURL: URL) {
-        seeds[info.infoHash.description] = SeedContext(info: info, sourceURL: sourceURL.standardizedFileURL)
+        let id = info.infoHash.description
+        seeds[id] = SeedContext(info: info, sourceURL: sourceURL.standardizedFileURL)
+        uploadedByHash[id, default: 0] = uploadedByHash[id, default: 0]
+        rateSamples[id] = (Date(), uploadedByHash[id] ?? 0)
     }
 
     func removeSeed(infoHash: String) {
         seeds.removeValue(forKey: infoHash)
+        uploadedByHash.removeValue(forKey: infoHash)
+        rateSamples.removeValue(forKey: infoHash)
 
         let affected = peerHashes.compactMap { $0.value == infoHash ? $0.key : nil }
         for id in affected {
