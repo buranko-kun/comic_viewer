@@ -125,6 +125,7 @@ final class ReaderSession {
             folder: newFolder,
             coverAloneInSpread: ReaderSettings.shared.coverAloneInSpread
         )
+        _ = navigation.setSpreadEnabled(ReaderSettings.shared.twoPageSpread)
 
         if let first = items.first, first.isFileURL, let info = ImageLoader.probe(first) {
             pagesLandscape = !info.isPortrait
@@ -149,9 +150,6 @@ final class ReaderSession {
         }
 
         guard navigation.goTo(index: min(max(start, 0), items.count - 1)) else { return }
-        if ReaderSettings.shared.twoPageSpread {
-            _ = navigation.setSpreadEnabled(true)
-        }
         scheduleSaveState()
         reload()
     }
