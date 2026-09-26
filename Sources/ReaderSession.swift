@@ -149,6 +149,9 @@ final class ReaderSession {
         }
 
         guard navigation.goTo(index: min(max(start, 0), items.count - 1)) else { return }
+        if ReaderSettings.shared.twoPageSpread {
+            _ = navigation.setSpreadEnabled(true)
+        }
         scheduleSaveState()
         reload()
     }
@@ -191,10 +194,23 @@ final class ReaderSession {
         reload()
     }
 
+    func setSpreadEnabled(_ enabled: Bool) {
+        navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
+        guard navigation.setSpreadEnabled(enabled) else { return }
+
+        ReaderSettings.shared.twoPageSpread = enabled
+        if !enabled {
+            secondary = nil
+        }
+        scheduleSaveState()
+        reload()
+    }
+
     @discardableResult
     func toggleSpread() -> String {
         navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
         let message = navigation.toggleSpread()
+        ReaderSettings.shared.twoPageSpread = navigation.spreadEnabled
         if !navigation.spreadEnabled {
             secondary = nil
         }
