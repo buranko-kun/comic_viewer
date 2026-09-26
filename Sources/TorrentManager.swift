@@ -15,9 +15,9 @@ final class TorrentSettingsStore {
     private static let portKey = "torrentListenPort"
 
     static let defaultTrackers = [
-        "http://tracker.dler.org:6969/announce",
-        "http://tracker.dler.com:6969/announce",
-        "http://tracker.renfei.net:8080/announce"
+        "https://tracker.pmman.tech:443/announce",
+        "https://tracker.zhuqiy.com:443/announce",
+        "https://tr.nyacat.pw:443/announce"
     ]
 
     var trackerText: String {
@@ -379,6 +379,7 @@ final class TorrentManager {
         trackerTasks[id]?.cancel()
         trackerTasks[id] = Task { [weak self] in
             guard let self else { return }
+            var firstAnnounce = true
 
             while !Task.isCancelled {
                 let uploaded = self.items.first { $0.id == id }?.totalUploaded ?? 0
@@ -387,7 +388,6 @@ final class TorrentManager {
                 }
 
                 var interval = 1800
-                var firstAnnounce = true
                 for trackerURL in trackerURLs {
                     do {
                         let response = try await HTTPTracker(announceURL: trackerURL).announce(
