@@ -95,11 +95,6 @@ final class ReaderSettings {
         didSet { UserDefaults.standard.set(coverAloneInSpread, forKey: Keys.coverAloneInSpread) }
     }
 
-    /// Gap, in points, between facing pages in two-page spread mode.
-    var spreadGutter: Double {
-        didSet { UserDefaults.standard.set(spreadGutter, forKey: Keys.spreadGutter) }
-    }
-
     var readingDirection: ReadingDirection {
         didSet { UserDefaults.standard.set(readingDirection.rawValue, forKey: Keys.readingDirection) }
     }
@@ -112,7 +107,6 @@ final class ReaderSettings {
         static let timelineScope = "reader.timelineScope"
         static let twoPageSpread = "reader.twoPageSpread"
         static let coverAloneInSpread = "reader.coverAloneInSpread"
-        static let spreadGutter = "reader.spreadGutter"
         static let readingDirection = "reader.readingDirection"
     }
 
@@ -128,8 +122,6 @@ final class ReaderSettings {
         ) ?? .issue
         twoPageSpread = d.object(forKey: Keys.twoPageSpread) as? Bool ?? false
         coverAloneInSpread = d.object(forKey: Keys.coverAloneInSpread) as? Bool ?? true
-        let savedGutter = d.object(forKey: Keys.spreadGutter) as? Double ?? 12
-        spreadGutter = min(max(savedGutter, 0), 48)
         readingDirection = ReadingDirection(
             rawValue: d.string(forKey: Keys.readingDirection) ?? ""
         ) ?? .leftToRight
