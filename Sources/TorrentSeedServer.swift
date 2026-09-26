@@ -10,7 +10,7 @@ import SwiftTorrent
 @MainActor
 final class TorrentSeedServer {
     static let shared = TorrentSeedServer()
-    static let defaultPort: UInt16 = 6881
+    nonisolated static let defaultPort: UInt16 = 6881
 
     struct SeedContext: Sendable {
         let info: TorrentInfo
@@ -91,7 +91,6 @@ final class TorrentSeedServer {
                 guard let self else { return }
                 let id = UUID()
                 Task { @MainActor in
-                    guard let self else { return }
                     let peer = TorrentSeedPeer(
                         id: id,
                         connection: connection,
@@ -124,7 +123,7 @@ final class TorrentSeedServer {
             }
 
             listener = newListener
-            port = port
+            self.port = port
             newListener.start(queue: DispatchQueue(label: "ComicViewer.TorrentSeedListener"))
         } catch {
             throw SeedServerError.listener(error.localizedDescription)
@@ -338,7 +337,7 @@ private final class TorrentSeedPeer: @unchecked Sendable {
             guard let self else { return }
             guard !self.closed else { return }
 
-            if let error {
+            if error != nil {
                 self.finish()
                 return
             }
@@ -444,7 +443,7 @@ private extension Data {
     func readUInt32BE(at offset: Int) -> UInt32 {
         let start = startIndex + offset
         var value: UInt32 = 0
-        Swift.withUnsafeMutableBytes(of: &value) { buffer in
+        _ = Swift.withUnsafeMutableBytes(of: &value) { buffer in
             copyBytes(to: buffer, from: start..<start + 4)
         }
         return UInt32(bigEndian: value)
