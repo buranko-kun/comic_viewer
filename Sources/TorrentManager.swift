@@ -98,6 +98,7 @@ final class TorrentManager {
     private var refreshTask: Task<Void, Never>?
     private(set) var items: [Item] = []
     private(set) var lastError: String?
+    private(set) var trackerStatus: [String: String] = [:]
 
     private var storedSeedsURL: URL {
         CentralStore.baseDir.appendingPathComponent("torrent-seeds.json")
@@ -397,9 +398,11 @@ final class TorrentManager {
                             event: firstAnnounce ? "started" : nil
                         )
                         interval = max(60, responseInterval)
+                        trackerStatus[trackerURL] = "OK"
                         firstAnnounce = false
                         break
                     } catch {
+                        trackerStatus[trackerURL] = error.localizedDescription
                         continue
                     }
                 }
