@@ -90,7 +90,7 @@ final class ReaderSettings {
         didSet { UserDefaults.standard.set(twoPageSpread, forKey: Keys.twoPageSpread) }
     }
 
-    /// Keep the first page/cover alone when two-page spread is enabled, then pair pages 2–3, 4–5, …
+    /// Keep the first page/cover alone when two-page spread is enabled. Wide pages are always standalone.
     var coverAloneInSpread: Bool {
         didSet { UserDefaults.standard.set(coverAloneInSpread, forKey: Keys.coverAloneInSpread) }
     }
