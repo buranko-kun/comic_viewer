@@ -37,7 +37,7 @@ final class AppRouter {
         case library(path: [URL])       // restore this drilled library folder (a local comic's series)
         case local                       // restore the flat local library
         case collections                 // restore the Collections screen
-        case readComics(CatalogEntry)   // restore this ReadComicsOnline series' issue list
+        case browse                     // restore the unified Online browser
     }
     var readerOrigin: ReaderOrigin = .home
 
@@ -189,6 +189,10 @@ final class AppRouter {
                     readerOrigin = .home
                     route = .collections
                     LibraryModel.shared.rescan()
+                    return true
+                case .browse:
+                    readerOrigin = .home
+                    route = .browse
                     return true
                 case .home:
                     showLibrary()
