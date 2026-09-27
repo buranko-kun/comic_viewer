@@ -77,7 +77,7 @@ enum SourcePluginTest {
                 let pages = try await SourcePluginRuntime.shared.pages(
                     plugin: plugin,
                     script: script,
-                    at: URL(string: "https://example.com/readable")!
+                    at: URL(string: "about:blank")!
                 )
                 guard pages == [URL(string: "https://example.com/readable/001.jpg")!] else {
                     throw SourcePluginRuntime.PluginError.invalidResult
