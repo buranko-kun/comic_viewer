@@ -18,16 +18,12 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertTrue(ReaderSettings.ReadingDirection.rightToLeft.isRightToLeft)
     }
 
-    func testReadingDirectionControlsArrowAndSpreadSemantics() {
+    func testReadingDirectionControlsArrows() {
         let ltr = ReaderSettings.ReadingDirection.leftToRight
         XCTAssertTrue(ltr.rightArrowAdvances)
-        XCTAssertEqual(ltr.arrangeSpread(1, 2).left, 1)
-        XCTAssertEqual(ltr.arrangeSpread(1, 2).right, 2)
 
         let rtl = ReaderSettings.ReadingDirection.rightToLeft
         XCTAssertFalse(rtl.rightArrowAdvances)
-        XCTAssertEqual(rtl.arrangeSpread(1, 2).left, 2)
-        XCTAssertEqual(rtl.arrangeSpread(1, 2).right, 1)
     }
 
     func testTimelineScopeLabels() {
@@ -59,28 +55,6 @@ final class ReaderSettingsTests: XCTestCase {
 
         settings.timelineScope = .chapter
         settings.showChapterMarkers = true
-    }
-
-    func testSpreadSettingsPersistThroughUserDefaults() {
-        let settings = ReaderSettings.shared
-        let previousCover = settings.coverAloneInSpread
-        let previousGutter = settings.spreadGutter
-        defer {
-            settings.coverAloneInSpread = previousCover
-            settings.spreadGutter = previousGutter
-        }
-
-        settings.coverAloneInSpread = false
-        settings.spreadGutter = 24
-
-        XCTAssertEqual(
-            UserDefaults.standard.object(forKey: "reader.coverAloneInSpread") as? Bool,
-            false
-        )
-        XCTAssertEqual(
-            UserDefaults.standard.object(forKey: "reader.spreadGutter") as? Double,
-            24
-        )
     }
 
     func testReadingDirectionPersistsThroughUserDefaults() {

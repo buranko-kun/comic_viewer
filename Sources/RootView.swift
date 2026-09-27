@@ -353,7 +353,6 @@ struct ShortcutsOverlay: View {
         ("+  −", "Zoom in / out (fit)"),
         ("Double-click", "Zoom to point"),
         ("Drag / arrows (zoomed)", "Pan"),
-        ("W", "Two-page spread"),
         ("Z", "Fit to screen / cycle fit mode"),
         ("H", "Toggle page number"),
         ("R", "Horizontal / Vertical view"),

@@ -9,10 +9,10 @@ enum ReadComicsTest {
     @MainActor
     static func runIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("--readcomicstest") else { return }
-        var failures = 0
+        var failures: [String] = []
         func check(_ name: String, _ cond: Bool) {
             print("\(cond ? "✓" : "✗ FAIL") \(name)")
-            if !cond { failures += 1 }
+            if !cond { failures.append(name) }
         }
 
         // MARK: entity decoding
@@ -123,9 +123,9 @@ enum ReadComicsTest {
         check("catalog decodes entity in title", entries.last?.title == "Zorro's Legacy (2019)")
         check("catalog pagination max = 159", pageCount == 159)
 
-        guard failures == 0 else {
-            print("\n\(failures) FAILED")
-            preconditionFailure("\(failures) ReadComics tests failed")
+        if !failures.isEmpty {
+            print("\n\(failures.count) FAILED")
+            preconditionFailure("\(failures.count) ReadComics tests failed")
         }
 
         print("\nALL PASSED")

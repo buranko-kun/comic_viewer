@@ -166,12 +166,6 @@ struct ContentView: View {
             .onChange(of: model.renderTick) { _, _ in
                 handleRenderTick()
             }
-            .onChange(of: model.spreadEnabled) { _, _ in
-                handleSpreadChanged()
-            }
-            .onChange(of: readerSettings.coverAloneInSpread) { _, value in
-                model.setCoverAloneInSpread(value)
-            }
             .onChange(of: model.transientMessage) { _, message in
                 handleTransientMessage(message)
             }
@@ -235,10 +229,6 @@ struct ContentView: View {
     private func handleRenderTick() {
         applyFitMode(container: containerSize, animated: false)
         flashCaption()
-    }
-
-    private func handleSpreadChanged() {
-        applyFitMode(container: containerSize, animated: false)
     }
 
     private func handleTransientMessage(_ message: String?) {
@@ -309,10 +299,9 @@ struct ContentView: View {
         }
     }
 
-    /// Uses the model's reading orientation for the HUD. Two-page spreads are already laid out
-    /// upright side-by-side, so the HUD should not receive an additional 90° rotation there.
+    /// Uses the model's reading orientation for the HUD.
     private var isPortrait: Bool {
-        !model.spreadEnabled && model.readingPortrait
+        model.readingPortrait
     }
 
     /// Wrap a full-screen overlay so it is oriented the same way as the page.
@@ -333,20 +322,10 @@ struct ContentView: View {
 
     // MARK: Pages
 
-    /// The page content under the zoom/pan transform: a single page, or in two-page spread,
-    /// the current and facing pages upright and side-by-side as a physical open-book layout.
+    /// The page content under the zoom/pan transform.
     @ViewBuilder
     private var pages: some View {
-        if model.spreadEnabled,
-           let first = model.current,
-           let second = model.secondary {
-            let (left, right) = readerSettings.readingDirection.arrangeSpread(first, second)
-
-            HStack(spacing: max(0, readerSettings.spreadGutter)) {
-                RotatingImageView(image: left, rotate: false)
-                RotatingImageView(image: right, rotate: false)
-            }
-        } else if let img = model.current {
+        if let img = model.current {
             RotatingImageView(image: img, rotate: model.readingPortrait)
         }
     }
@@ -376,39 +355,35 @@ struct ContentView: View {
 
     /// The fit mode actually applied for a page. The default (`.fit`) is content-aware: a landscape
     /// (wide) page fills the width and pans vertically instead of shrinking to fit the whole page.
-    /// Explicit modes chosen via `Z` (width/height/actual) and spread mode are honored as-is.
+    /// Explicit modes chosen via `Z` (width/height/actual) are honored as-is.
     private func effectiveFitMode(_ img: DisplayImage, container: CGSize) -> FitMode {
         // In Vertical view, "fit to width" applies only to **originally-landscape** pages (wider than
         // tall); portrait-native pages fit the whole screen even though they're shown rotated.
-        guard fitMode == .fit, !model.spreadEnabled,
+        guard fitMode == .fit,
               model.readingPortrait, ReaderSettings.shared.fitWideToWidth else { return fitMode }
         return img.isPortrait ? .fit : .width
     }
 
     /// The starting (fitted) zoom for a page under the current mode — the "you're not zoomed" level.
     private func fitBaseline(_ img: DisplayImage, container: CGSize) -> CGFloat {
-        guard !model.spreadEnabled else { return 1 }
         return min(max(fitZoom(effectiveFitMode(img, container: container), img: img, container: container), 1),
                    maximumZoom(container: container))
     }
 
-    /// Apply the current fit mode as the starting zoom over the actual fitted page size.
-    /// In spread mode the two-page layout fills the reader, so Fit page is used.
+    /// Apply the current fit mode as the starting zoom over the fitted page.
     private func applyFitMode(container: CGSize, animated: Bool) {
         guard let img = model.current, container.width > 0, container.height > 0 else { return }
 
         let mode = effectiveFitMode(img, container: container)
-        let target = model.spreadEnabled
-            ? 1
-            : min(
-                max(fitZoom(mode, img: img, container: container), 1),
-                maximumZoom(container: container)
-            )
+        let target = min(
+            max(fitZoom(mode, img: img, container: container), 1),
+            maximumZoom(container: container)
+        )
 
         let apply = {
             zoom = target
 
-            if mode == .width && !model.spreadEnabled {
+            if mode == .width {
                 // Start at the top of the page rather than vertically centered.
                 let fitted = fittedSize(img, container: container)
                 let maxY = max(0, (zoom * fitted.height - container.height) / 2)
@@ -463,12 +438,10 @@ struct ContentView: View {
     }
 
     /// The actual base content size used by the zoom/pan geometry.
-    /// A single page uses its fitted dimensions. A spread occupies the reader container.
+    /// The fitted content size used by the zoom/pan geometry.
     private func baseContentSize(container: CGSize) -> CGSize {
         guard let img = model.current else { return .zero }
-        return model.spreadEnabled
-            ? container
-            : fittedSize(img, container: container)
+        return fittedSize(img, container: container)
     }
 
     /// Maximum useful zoom for the current page. The upper limit adapts to source resolution so
@@ -479,7 +452,7 @@ struct ContentView: View {
             return hardMaxZoom
         }
 
-        guard let img = model.current, !model.spreadEnabled else {
+        guard let img = model.current else {
             return hardMaxZoom
         }
 
@@ -700,11 +673,7 @@ struct ContentView: View {
 
         let next = entries[currentOrdinal + 1]
 
-        // In single-page mode this is the final page. In spread mode the reader advances by two,
-        // so the last visible spread begins two pages before the next chapter.
-        let lastVisibleStart = model.spreadEnabled
-            ? model.spreadStartIndex(for: next.index - 1)
-            : next.index - 1
+        let lastVisibleStart = next.index - 1
         guard model.index >= lastVisibleStart else { return nil }
 
         return UpNextChapter(
@@ -820,12 +789,10 @@ struct ContentView: View {
         PageScrubber(
             urls: model.items,
             currentIndex: model.index,
-            spreadEnabled: model.spreadEnabled,
             readingDirection: readerSettings.readingDirection,
             cache: thumbCache,
             showChapterMarkers: readerSettings.showChapterMarkers,
             chapterIndices: model.chapterEntries.map(\.index),
-            coverAloneInSpread: readerSettings.coverAloneInSpread,
             onSelect: { index in
                 model.goTo(index: index)
             }
@@ -838,12 +805,10 @@ struct ContentView: View {
             PageScrubber(
                 urls: Array(model.items[range.start..<range.end]),
                 currentIndex: model.index - range.start,
-                spreadEnabled: model.spreadEnabled,
                 readingDirection: readerSettings.readingDirection,
                 cache: thumbCache,
                 showChapterMarkers: false,
                 chapterIndices: [],
-                coverAloneInSpread: readerSettings.coverAloneInSpread,
                 onSelect: { index in
                     model.goTo(index: range.start + index)
                 }
@@ -1201,10 +1166,6 @@ struct ContentView: View {
 
         case "r": // Reading rotation
             flashToast(model.toggleReadingRotation())
-            return true
-
-        case "w": // Two-page spread
-            flashToast(model.toggleSpread())
             return true
 
         case "z": // Fit mode

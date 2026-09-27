@@ -4,7 +4,7 @@ A native **macOS** comic reader with an **iOS** companion, built in SwiftUI.
 
 ## Features
 
-- **Reader** — paged reading, pinch/scroll zoom & pan, two-page spread, Horizontal/Vertical view
+- **Reader** — paged reading, pinch/scroll zoom & pan, Horizontal/Vertical view
   (rotate portrait pages), content-aware fit-to-width, user-created named chapters, resume.
 - **Library** — folders and archives (`.cbz`/`.cbr`/`.zip`/`.rar`/`.7z`), Continue Reading,
   Collections, `ComicInfo.xml` metadata + on-demand fetch from ComicVine.

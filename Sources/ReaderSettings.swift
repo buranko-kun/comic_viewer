@@ -42,10 +42,6 @@ final class ReaderSettings {
             !isRightToLeft
         }
 
-        /// Arrange two logically consecutive pages for physical left/right presentation.
-        func arrangeSpread<T>(_ first: T, _ second: T) -> (left: T, right: T) {
-            isRightToLeft ? (second, first) : (first, second)
-        }
     }
 
     var defaultView: DefaultView {
@@ -85,16 +81,6 @@ final class ReaderSettings {
         didSet { UserDefaults.standard.set(timelineScope.rawValue, forKey: Keys.timelineScope) }
     }
 
-    /// Keep the first page/cover alone when two-page spread is enabled, then pair pages 2–3, 4–5, …
-    var coverAloneInSpread: Bool {
-        didSet { UserDefaults.standard.set(coverAloneInSpread, forKey: Keys.coverAloneInSpread) }
-    }
-
-    /// Gap, in points, between facing pages in two-page spread mode.
-    var spreadGutter: Double {
-        didSet { UserDefaults.standard.set(spreadGutter, forKey: Keys.spreadGutter) }
-    }
-
     var readingDirection: ReadingDirection {
         didSet { UserDefaults.standard.set(readingDirection.rawValue, forKey: Keys.readingDirection) }
     }
@@ -105,8 +91,6 @@ final class ReaderSettings {
         static let progressBar = "reader.showProgressBar"
         static let chapterMarkers = "reader.showChapterMarkers"
         static let timelineScope = "reader.timelineScope"
-        static let coverAloneInSpread = "reader.coverAloneInSpread"
-        static let spreadGutter = "reader.spreadGutter"
         static let readingDirection = "reader.readingDirection"
     }
 
@@ -120,9 +104,6 @@ final class ReaderSettings {
         timelineScope = TimelineScope(
             rawValue: d.string(forKey: Keys.timelineScope) ?? ""
         ) ?? .issue
-        coverAloneInSpread = d.object(forKey: Keys.coverAloneInSpread) as? Bool ?? true
-        let savedGutter = d.object(forKey: Keys.spreadGutter) as? Double ?? 12
-        spreadGutter = min(max(savedGutter, 0), 48)
         readingDirection = ReadingDirection(
             rawValue: d.string(forKey: Keys.readingDirection) ?? ""
         ) ?? .leftToRight

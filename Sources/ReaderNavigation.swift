@@ -7,8 +7,7 @@ import Foundation
 struct ReaderNavigation {
     private(set) var items: [URL] = []
     private(set) var index = 0
-    private(set) var spreadEnabled = false
-    private(set) var coverAloneInSpread = true
+
     private(set) var chapters: Set<String> = []
     private(set) var chapterNames: [String: String] = [:]
 
@@ -16,10 +15,9 @@ struct ReaderNavigation {
     private var folder: URL?
     private var lastPage: String?
 
-    mutating func configure(items: [URL], folder: URL?, coverAloneInSpread: Bool = true) {
+    mutating func configure(items: [URL], folder: URL?) {
         self.items = items
         self.folder = folder
-        self.coverAloneInSpread = coverAloneInSpread
         index = 0
         resetState()
         loadBookmarkChapters()
@@ -84,15 +82,12 @@ struct ReaderNavigation {
 
     @discardableResult
     mutating func next() -> Bool {
-        move(spreadEnabled ? 2 : 1)
+        move(1)
     }
 
     @discardableResult
     mutating func prev() -> Bool {
-        if spreadEnabled, coverAloneInSpread, index == 1 {
-            return setIndex(0)
-        }
-        return move(spreadEnabled ? -2 : -1)
+        move(-1)
     }
 
     @discardableResult
@@ -108,33 +103,6 @@ struct ReaderNavigation {
     @discardableResult
     mutating func goTo(index: Int) -> Bool {
         setIndex(index)
-    }
-
-    /// Toggles the two-page spread and returns the user-facing status message.
-    ///
-    /// When enabling spread on an odd page, the visible index is aligned to the preceding even
-    /// page while the odd page remains the persisted resume target, matching the previous behavior.
-    mutating func toggleSpread() -> String {
-        if spreadEnabled {
-            spreadEnabled = false
-            if let lastPage,
-               let savedIndex = items.firstIndex(where: { pageKey(for: $0) == lastPage }) {
-                index = savedIndex
-            }
-            return "Single page"
-        }
-
-        spreadEnabled = true
-        guard items.indices.contains(index) else { return "Two-page spread" }
-
-        let resumeKey = pageKey(for: items[index])
-        let normalized = spreadStart(for: index)
-        if normalized != index {
-            index = normalized
-            lastPage = resumeKey
-        }
-
-        return "Two-page spread"
     }
 
     // MARK: Chapters
@@ -254,15 +222,6 @@ struct ReaderNavigation {
     func neighbors() -> [URL] {
         guard !items.isEmpty else { return [] }
 
-        if spreadEnabled {
-            var result: [URL] = []
-            if index + 2 < items.count { result.append(items[index + 2]) }
-            if index + 3 < items.count { result.append(items[index + 3]) }
-            if index > 1 { result.append(items[index - 2]) }
-            if index > 0 { result.append(items[index - 1]) }
-            return result
-        }
-
         var result: [URL] = []
         if index + 1 < items.count { result.append(items[index + 1]) }
         if index > 0 { result.append(items[index - 1]) }
@@ -310,49 +269,9 @@ struct ReaderNavigation {
     private mutating func setIndex(_ requested: Int) -> Bool {
         guard items.indices.contains(requested) else { return false }
 
-        let normalized = spreadStart(for: requested)
-        guard items.indices.contains(normalized) else { return false }
-
-        index = normalized
-        lastPage = pageKey(for: items[normalized])
+        index = requested
+        lastPage = pageKey(for: items[requested])
         return true
-    }
-
-    /// First logical page of the visible spread containing an index.
-    /// With cover-alone enabled: 0 is the cover, then 1–2, 3–4, 5–6, …
-    private func spreadStart(for index: Int) -> Int {
-        guard spreadEnabled else { return index }
-
-        if coverAloneInSpread {
-            guard index > 0 else { return 0 }
-            return 1 + ((index - 1) / 2) * 2
-        }
-
-        return index - (index % 2)
-    }
-
-    /// The next page shown alongside the current page in spread mode, if there is one.
-    var secondaryIndex: Int? {
-        guard spreadEnabled, items.indices.contains(index + 1) else { return nil }
-        if coverAloneInSpread, index == 0 { return nil }
-        return index + 1
-    }
-
-    mutating func setCoverAloneInSpread(_ enabled: Bool) {
-        coverAloneInSpread = enabled
-        guard spreadEnabled, items.indices.contains(index) else { return }
-
-        let resumeKey = pageKey(for: items[index])
-        let normalized = spreadStart(for: index)
-        if normalized != index {
-            index = normalized
-            lastPage = resumeKey
-        }
-    }
-
-    /// Publicly useful for overlays that need to know which spread contains a future page.
-    func spreadStartIndex(for index: Int) -> Int {
-        spreadStart(for: index)
     }
 
     private mutating func move(_ delta: Int) -> Bool {

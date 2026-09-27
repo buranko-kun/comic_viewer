@@ -68,7 +68,7 @@ final class TorrentMetadataSeedingTests: XCTestCase {
         XCTAssertEqual(header["piece"]?.integerValue, 1)
         XCTAssertEqual(header["total_size"]?.integerValue, Int64(metadata.count))
         XCTAssertEqual(
-            Data(payload[range]),
+            Data(payload.dropFirst(range.upperBound)),
             Data(metadata.dropFirst(TorrentMetadataWire.metadataPieceSize))
         )
     }
