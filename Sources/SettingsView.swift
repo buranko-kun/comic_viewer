@@ -32,7 +32,7 @@ struct SettingsView: View {
             SharingTab()
                 .tabItem { Label("Sharing", systemImage: "wifi") }
         }
-        .frame(width: 760, height: 560)
+        .frame(width: 760, height: 540)
     }
 
     private var sourcesTab: some View {
@@ -344,27 +344,6 @@ private struct ReaderTab: View {
                     .padding(4)
                 }
 
-                GroupBox("Pages") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("Two-page spread", isOn: $s.twoPageSpread)
-                            .onChange(of: s.twoPageSpread) { _, value in
-                                AppModel.shared.setSpreadEnabled(value)
-                            }
-
-                        Text("Toggle with W while reading.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Divider()
-
-                        Toggle("Keep cover page alone", isOn: $s.coverAloneInSpread)
-
-                        Text("Page 1 stays alone, then pages pair from 2–3. Wide pages are shown alone.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(4)
-                }
             }
             .padding(20)
         }
