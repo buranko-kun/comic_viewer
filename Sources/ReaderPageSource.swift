@@ -13,41 +13,23 @@ enum ReaderPageSource: Sendable {
         return false
     }
 
-    /// Load the visible page pair. Remote requests can run concurrently because each network
-    /// request is independent. Local archive extraction stays sequential to avoid concurrent
-    /// extraction against one archive session.
-    func loadVisiblePages(
+    /// Load one visible page from the current reader source.
+    func loadVisiblePage(
         primary: URL,
-        secondary: URL?,
         maxPixel: Int,
         cache: ImageCache
-    ) async -> (DisplayImage?, DisplayImage?) {
+    ) async -> DisplayImage? {
         switch self {
         case .remote:
-            async let first = RemotePageCache.shared.image(for: primary, maxPixel: maxPixel)
-            if let secondary {
-                async let second = RemotePageCache.shared.image(for: secondary, maxPixel: maxPixel)
-                return await (first, second)
-            }
-            return await (first, nil)
+            return await RemotePageCache.shared.image(for: primary, maxPixel: maxPixel)
 
         case .local(let streamer):
-            let first = await loadLocalPage(
+            return await loadLocalPage(
                 primary,
                 streamer: streamer,
                 cache: cache,
                 maxPixel: maxPixel
             )
-            guard let secondary else {
-                return (first, nil)
-            }
-            let second = await loadLocalPage(
-                secondary,
-                streamer: streamer,
-                cache: cache,
-                maxPixel: maxPixel
-            )
-            return (first, second)
         }
     }
 
