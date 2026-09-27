@@ -18,7 +18,6 @@ struct ReaderNavigation {
     mutating func configure(items: [URL], folder: URL?) {
         self.items = items
         self.folder = folder
-        widePages = []
         index = 0
         resetState()
         loadBookmarkChapters()
