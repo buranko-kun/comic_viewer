@@ -68,7 +68,6 @@ final class ReaderSession {
         stateStore.cancel()
 
         current = nil
-        secondary = nil
         failedName = nil
         failedURL = nil
         isOpening = true
