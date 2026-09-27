@@ -52,7 +52,7 @@ struct BrowseView: View {
         let shown = filteredComics.count
         let noun = shown == 1 ? "comic" : "comics"
         if browseState.mustReadOnly { return "\(shown) must-read \(noun)" }
-        let noMirror = filteredComics.lazy.filter { !$0.hasMirrors }.count
+        let noMirror = filteredComics.lazy.filter { !$0.hasMirrors && !$0.opensCatalog && !$0.canRead }.count
         return "\(shown) \(noun) · \(noMirror) without mirror"
     }
 
@@ -610,7 +610,7 @@ private struct ComicCard: View {
 
     private var borderColor: Color {
         if selected { return .accentColor }
-        return comic.hasMirrors ? .white.opacity(0.12) : .orange.opacity(0.9)
+        return comic.hasMirrors || comic.opensCatalog || comic.canRead ? .white.opacity(0.12) : .orange.opacity(0.9)
     }
 
     var body: some View {
@@ -623,7 +623,7 @@ private struct ComicCard: View {
                     .overlay(alignment: .topLeading) {
                         if selecting { selectionMark } else if comic.mustRead { mustReadBadge }
                     }
-                    .overlay(alignment: .bottomLeading) { if !comic.hasMirrors { noMirrorBadge } }
+                    .overlay(alignment: .bottomLeading) { if !comic.hasMirrors && !comic.opensCatalog && !comic.canRead { noMirrorBadge } }
                     .overlay { if !selecting && comic.hasMirrors { DownloadOverlay(item: CollectionItem(remote: comic)) } }
             }
             .contentShape(Rectangle())
