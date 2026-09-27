@@ -270,11 +270,8 @@ struct ReaderNavigation {
     private mutating func setIndex(_ requested: Int) -> Bool {
         guard items.indices.contains(requested) else { return false }
 
-        let normalized = spreadStart(for: requested)
-        guard items.indices.contains(normalized) else { return false }
-
-        index = normalized
-        lastPage = pageKey(for: items[normalized])
+        index = requested
+        lastPage = pageKey(for: items[requested])
         return true
     }
 
