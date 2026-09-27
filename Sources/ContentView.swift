@@ -789,12 +789,10 @@ struct ContentView: View {
         PageScrubber(
             urls: model.items,
             currentIndex: model.index,
-            spreadEnabled: model.spreadEnabled,
             readingDirection: readerSettings.readingDirection,
             cache: thumbCache,
             showChapterMarkers: readerSettings.showChapterMarkers,
             chapterIndices: model.chapterEntries.map(\.index),
-            coverAloneInSpread: readerSettings.coverAloneInSpread,
             onSelect: { index in
                 model.goTo(index: index)
             }
