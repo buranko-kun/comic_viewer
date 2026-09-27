@@ -435,13 +435,82 @@ struct BrowseView: View {
         }
     }
 
-    /// Tap: in select mode toggle the comic; otherwise open its source page in the browser.
+    /// Tap a remote card. Plugins can turn cards into sub-catalogs or stream their page images
+    /// directly into the reader; ordinary catalogs keep the existing browser-open behavior.
     private func tapComic(_ comic: RemoteComic) {
         if selecting {
             if selectedIDs.contains(comic.id) { selectedIDs.remove(comic.id) }
             else { selectedIDs.insert(comic.id) }
-        } else if let url = comic.pageURL {
+            return
+        }
+
+        guard let url = comic.pageURL else { return }
+
+        guard let sourceID = comic.sourceID,
+              let plugin = plugins.plugin(id: sourceID) else {
             NSWorkspace.shared.open(url)
+            return
+        }
+
+        if comic.opensCatalog {
+            openPluginCatalog(plugin, at: url)
+        } else if comic.canRead {
+            openPluginComic(plugin, comic: comic)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func openPluginCatalog(_ plugin: SourcePlugin, at url: URL) {
+        loadingChild = true
+        childError = nil
+        browseState.clearSearch()
+        browseState.resetScroll()
+
+        Task {
+            do {
+                browseState.stack.append(
+                    try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: url)
+                )
+            } catch {
+                childError = error.localizedDescription
+            }
+            loadingChild = false
+        }
+    }
+
+    private func openPluginComic(_ plugin: SourcePlugin, comic: RemoteComic) {
+        guard let url = comic.pageURL else { return }
+
+        loadingChild = true
+        childError = nil
+
+        Task {
+            do {
+                let pages = try await SourcePluginRuntime.shared.pages(for: plugin, comic: comic)
+                guard !pages.isEmpty else {
+                    throw SourcePluginRuntime.PluginError.invalidResult
+                }
+
+                let readingComic = Comic(
+                    url: url,
+                    series: comic.series ?? comic.title,
+                    isArchive: false,
+                    coverURL: pages.first ?? comic.coverURL,
+                    pageCount: pages.count,
+                    progress: nil,
+                    chapterCount: 0,
+                    metaTitle: comic.title,
+                    tooltip: comic.description,
+                    remotePages: pages
+                )
+
+                loadingChild = false
+                router.openComic(readingComic, origin: .browse)
+            } catch {
+                childError = error.localizedDescription
+                loadingChild = false
+            }
         }
     }
 
