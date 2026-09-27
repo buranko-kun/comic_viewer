@@ -167,7 +167,9 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 pageString: link,
                 mustRead: item.mustRead ?? false,
                 mustReadTitle: item.mustReadTitle,
-                size: item.size
+                size: item.size,
+                opensCatalog: item.opensCatalog ?? false,
+                canRead: item.canRead ?? false
             )
         }
 
@@ -208,11 +210,54 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         let mustRead: Bool?
         let mustReadTitle: String?
         let metadata: [String: String]?
+        let opensCatalog: Bool?
+        let canRead: Bool?
     }
 
     private struct PluginCatalogRef: Decodable {
         let name: String?
         let url: String
+    }
+
+    /// Resolve a readable plugin comic into its ordered page-image URLs.
+    func pages(for plugin: SourcePlugin, comic: RemoteComic) async throws -> [URL] {
+        guard let script = SourcePluginStore.shared.script(for: plugin) else {
+            throw PluginError.invalidPlugin("installed script is missing")
+        }
+        guard comic.canRead, let url = comic.pageURL else {
+            throw PluginError.invalidPlugin("comic is not readable by this plugin")
+        }
+        return try await pages(plugin: plugin, script: script, at: url)
+    }
+
+    func pages(plugin: SourcePlugin, script: String, at pageURL: URL) async throws -> [URL] {
+        try await load(URLRequest(url: pageURL))
+        try await install(script)
+
+        let json = try await callAsyncJSON("""
+        JSON.stringify(await ComicViewerSource.parsePages())
+        """)
+
+        guard json.utf8.count <= 4_000_000 else {
+            throw PluginError.oversizedResult
+        }
+
+        guard let data = json.data(using: .utf8),
+              let document = try? JSONDecoder().decode(PluginPages.self, from: data)
+        else {
+            throw PluginError.invalidResult
+        }
+
+        var seen = Set<String>()
+        return document.pages.compactMap { raw -> URL? in
+            guard let url = resolveURL(raw, relativeTo: pageURL),
+                  seen.insert(url.absoluteString).inserted else { return nil }
+            return url
+        }
+    }
+
+    private struct PluginPages: Decodable {
+        let pages: [String]
     }
 
     private func install(_ script: String) async throws {
