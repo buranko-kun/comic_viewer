@@ -2,8 +2,7 @@ import SwiftUI
 import CoreGraphics
 
 /// Interactive page timeline with a thumbnail preview while scrubbing.
-/// The timeline is logical-page aware, supports two-page spreads, and mirrors the
-/// physical direction of the reader for RTL comics.
+/// The timeline mirrors the physical direction of the reader for RTL comics.
 struct PageScrubber: View {
     let urls: [URL]
     let currentIndex: Int
@@ -98,7 +97,7 @@ struct PageScrubber: View {
                         previewIndex = nil
                         previewTask?.cancel()
                         previewTask = nil
-                        onSelect(normalizedIndex(index))
+                        onSelect(clampedIndex(index))
                     }
             )
         }
@@ -133,9 +132,7 @@ struct PageScrubber: View {
                     .stroke(.white.opacity(0.18), lineWidth: 1)
             )
 
-            Text(spreadEnabled && (!coverAloneInSpread || index != 0) && index + 1 < urls.count
-                 ? "Pages \(index + 1)–\(index + 2) of \(urls.count)"
-                 : "Page \(index + 1) of \(urls.count)")
+            Text("Page \(index + 1) of \(urls.count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
         }
