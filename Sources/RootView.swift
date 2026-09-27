@@ -37,6 +37,7 @@ final class AppRouter {
         case library(path: [URL])       // restore this drilled library folder (a local comic's series)
         case local                       // restore the flat local library
         case collections                 // restore the Collections screen
+        case readComics(CatalogEntry)   // restore the legacy ReadComicsOnline series screen
         case browse                     // restore the unified Online browser
     }
     var readerOrigin: ReaderOrigin = .home
