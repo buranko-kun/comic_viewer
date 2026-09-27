@@ -14,7 +14,6 @@ final class ReaderSession {
     private var navigation = ReaderNavigation()
     private(set) var current: DisplayImage?
     private(set) var renderTick = 0
-    private(set) var secondary: DisplayImage?
     private(set) var failedName: String?
     private(set) var failedURL: URL?
     private(set) var transientMessage: String?
@@ -23,7 +22,6 @@ final class ReaderSession {
 
     var items: [URL] { navigation.items }
     var index: Int { navigation.index }
-    var spreadEnabled: Bool { navigation.spreadEnabled }
     var chapters: Set<String> { navigation.chapters }
     var chapterNames: [String: String] { navigation.chapterNames }
     private var comicKey: String?
@@ -122,10 +120,8 @@ final class ReaderSession {
 
         navigation.configure(
             items: newItems,
-            folder: newFolder,
-            coverAloneInSpread: ReaderSettings.shared.coverAloneInSpread
+            folder: newFolder
         )
-        _ = navigation.setSpreadEnabled(ReaderSettings.shared.twoPageSpread)
 
         if let first = items.first, first.isFileURL, let info = ImageLoader.probe(first) {
             pagesLandscape = !info.isPortrait
@@ -185,38 +181,6 @@ final class ReaderSession {
         reload()
     }
 
-    func setCoverAloneInSpread(_ enabled: Bool) {
-        navigation.setCoverAloneInSpread(enabled)
-        guard navigation.spreadEnabled else { return }
-        scheduleSaveState()
-        reload()
-    }
-
-    func setSpreadEnabled(_ enabled: Bool) {
-        navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
-        guard navigation.setSpreadEnabled(enabled) else { return }
-
-        ReaderSettings.shared.twoPageSpread = enabled
-        if !enabled {
-            secondary = nil
-        }
-        scheduleSaveState()
-        reload()
-    }
-
-    @discardableResult
-    func toggleSpread() -> String {
-        navigation.setCoverAloneInSpread(ReaderSettings.shared.coverAloneInSpread)
-        let message = navigation.toggleSpread()
-        ReaderSettings.shared.twoPageSpread = navigation.spreadEnabled
-        if !navigation.spreadEnabled {
-            secondary = nil
-        }
-        scheduleSaveState()
-        reload()
-        return message
-    }
-
     func goTo(index: Int) {
         guard navigation.goTo(index: index) else { return }
         scheduleSaveState()
@@ -228,17 +192,13 @@ final class ReaderSession {
     private func reload() {
         guard items.indices.contains(index) else {
             current = nil
-            secondary = nil
             return
         }
 
         loadTask?.cancel()
         loadToken += 1
         let token = loadToken
-        let pageIndex = index
         let url = items[index]
-        let secondIndex = navigation.secondaryIndex
-        let secondURL = secondIndex.map { items[$0] }
         let maxPixel = Self.displayMaxPixel()
         let source = source
 
@@ -248,21 +208,13 @@ final class ReaderSession {
             let signpost = ReaderPerformance.begin("Reader Page Load")
             defer { ReaderPerformance.end("Reader Page Load", signpost) }
 
-            let (img, img2) = await source.loadVisiblePages(
+            let img = await source.loadVisiblePage(
                 primary: url,
-                secondary: secondURL,
                 maxPixel: maxPixel,
                 cache: cache
             )
 
             guard !Task.isCancelled, token == loadToken else { return }
-            if let img {
-                navigation.setPageWide(index: pageIndex, isWide: !img.isPortrait)
-            }
-            if let img2, let secondIndex {
-                navigation.setPageWide(index: secondIndex, isWide: !img2.isPortrait)
-            }
-
             current = img
             renderTick &+= 1
 
@@ -273,7 +225,6 @@ final class ReaderSession {
                 )
                 self.openStartedAt = nil
             }
-            secondary = (img?.isPortrait == true && img2?.isPortrait == true) ? img2 : nil
             failedName = (img == nil) ? url.lastPathComponent : nil
             failedURL = (img == nil) ? url : nil
 
@@ -329,11 +280,6 @@ final class ReaderSession {
 
     var readingProgress: Double {
         navigation.readingProgress
-    }
-
-    /// First logical page of the visible spread containing an index.
-    func spreadStartIndex(for index: Int) -> Int {
-        navigation.spreadStartIndex(for: index)
     }
 
     @discardableResult
