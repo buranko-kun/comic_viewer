@@ -7,40 +7,33 @@ import CoreGraphics
 struct PageScrubber: View {
     let urls: [URL]
     let currentIndex: Int
-    let spreadEnabled: Bool
     let readingDirection: ReaderSettings.ReadingDirection
     let cache: ThumbnailCache
     let showChapterMarkers: Bool
     let chapterIndices: [Int]
-    let coverAloneInSpread: Bool
     let onSelect: (Int) -> Void
 
     init(
         urls: [URL],
         currentIndex: Int,
-        spreadEnabled: Bool,
         readingDirection: ReaderSettings.ReadingDirection,
         cache: ThumbnailCache,
         showChapterMarkers: Bool = false,
         chapterIndices: [Int] = [],
-        coverAloneInSpread: Bool = false,
         onSelect: @escaping (Int) -> Void
     ) {
         self.urls = urls
         self.currentIndex = currentIndex
-        self.spreadEnabled = spreadEnabled
         self.readingDirection = readingDirection
         self.cache = cache
         self.showChapterMarkers = showChapterMarkers
         self.chapterIndices = chapterIndices
-        self.coverAloneInSpread = coverAloneInSpread
         self.onSelect = onSelect
     }
 
     @State private var isScrubbing = false
     @State private var previewIndex: Int?
     @State private var previewImage: CGImage?
-    @State private var previewSecondImage: CGImage?
     @State private var previewTask: Task<Void, Never>?
 
     private let trackHeight: CGFloat = 8
@@ -131,12 +124,6 @@ struct PageScrubber: View {
                         .controlSize(.small)
                 }
 
-                if spreadEnabled, let previewSecondImage {
-                    Image(decorative: previewSecondImage, scale: 1)
-                        .resizable()
-                        .interpolation(.medium)
-                        .aspectRatio(contentMode: .fit)
-                }
             }
             .frame(width: previewWidth, height: 145)
             .padding(5)
@@ -160,15 +147,9 @@ struct PageScrubber: View {
     private func loadPreview(index: Int) {
         previewTask?.cancel()
         previewImage = nil
-        previewSecondImage = nil
 
         guard urls.indices.contains(index) else { return }
         let firstURL = urls[index]
-        let secondURL = spreadEnabled
-            && (!coverAloneInSpread || index != 0)
-            && urls.indices.contains(index + 1)
-            ? urls[index + 1]
-            : nil
         let cache = cache
         let maxPixel = previewMaxPixel
 
@@ -176,20 +157,14 @@ struct PageScrubber: View {
             let first = await cache.thumbnail(for: firstURL, maxPixel: maxPixel)
             guard !Task.isCancelled else { return }
 
-            var second: CGImage?
-            if let secondURL {
-                second = await cache.thumbnail(for: secondURL, maxPixel: maxPixel)
-            }
-
             guard !Task.isCancelled else { return }
             previewImage = first
-            previewSecondImage = second
         }
     }
 
     private func progress(for index: Int) -> CGFloat {
         guard urls.count > 1 else { return 0 }
-        let logical = CGFloat(normalizedIndex(index))
+        let logical = CGFloat(clampedIndex(index))
         let fraction = logical / CGFloat(urls.count - 1)
         return readingDirection.isRightToLeft ? 1 - fraction : fraction
     }
@@ -205,15 +180,9 @@ struct PageScrubber: View {
         return Int((logical * CGFloat(urls.count - 1)).rounded())
     }
 
-    private func normalizedIndex(_ index: Int) -> Int {
+    private func clampedIndex(_ index: Int) -> Int {
         guard !urls.isEmpty else { return 0 }
-        let clamped = min(max(index, 0), urls.count - 1)
-        guard spreadEnabled else { return clamped }
-        if coverAloneInSpread {
-            guard clamped > 0 else { return 0 }
-            return 1 + ((clamped - 1) / 2) * 2
-        }
-        return clamped - (clamped % 2)
+        return min(max(index, 0), urls.count - 1)
     }
 
     static func targetIndex(x: CGFloat, width: CGFloat, count: Int, direction: ReaderSettings.ReadingDirection) -> Int {
@@ -223,19 +192,4 @@ struct PageScrubber: View {
         return Int((logical * CGFloat(count - 1)).rounded())
     }
 
-    static func normalizedTargetIndex(
-        _ index: Int,
-        count: Int,
-        spreadEnabled: Bool,
-        coverAloneInSpread: Bool = false
-    ) -> Int {
-        guard count > 0 else { return 0 }
-        let clamped = min(max(index, 0), count - 1)
-        guard spreadEnabled else { return clamped }
-        if coverAloneInSpread {
-            guard clamped > 0 else { return 0 }
-            return 1 + ((clamped - 1) / 2) * 2
-        }
-        return clamped - (clamped % 2)
-    }
 }
