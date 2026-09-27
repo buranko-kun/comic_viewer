@@ -7,11 +7,7 @@ import Foundation
 struct ReaderNavigation {
     private(set) var items: [URL] = []
     private(set) var index = 0
-    private(set) var spreadEnabled = false
-    private(set) var coverAloneInSpread = true
 
-    /// Page indices whose decoded image is wide enough to occupy a spread by itself.
-    private var widePages: Set<Int> = []
     private(set) var chapters: Set<String> = []
     private(set) var chapterNames: [String: String] = [:]
 
@@ -19,10 +15,9 @@ struct ReaderNavigation {
     private var folder: URL?
     private var lastPage: String?
 
-    mutating func configure(items: [URL], folder: URL?, coverAloneInSpread: Bool = true) {
+    mutating func configure(items: [URL], folder: URL?) {
         self.items = items
         self.folder = folder
-        self.coverAloneInSpread = coverAloneInSpread
         widePages = []
         index = 0
         resetState()
@@ -88,26 +83,12 @@ struct ReaderNavigation {
 
     @discardableResult
     mutating func next() -> Bool {
-        guard spreadEnabled else { return move(1) }
-
-        if widePages.contains(index) || widePages.contains(index + 1) {
-            return move(1)
-        }
-        return move(2)
+        move(1)
     }
 
     @discardableResult
     mutating func prev() -> Bool {
-        guard spreadEnabled else { return move(-1) }
-
-        if coverAloneInSpread, index == 1 {
-            return setIndex(0)
-        }
-
-        if widePages.contains(index - 1) {
-            return move(-1)
-        }
-        return move(-2)
+        move(-1)
     }
 
     @discardableResult
@@ -123,50 +104,6 @@ struct ReaderNavigation {
     @discardableResult
     mutating func goTo(index: Int) -> Bool {
         setIndex(index)
-    }
-
-    /// Sets two-page spread mode and keeps the logical resume page intact.
-    @discardableResult
-    mutating func setSpreadEnabled(_ enabled: Bool) -> Bool {
-        guard spreadEnabled != enabled else { return false }
-
-        if enabled {
-            spreadEnabled = true
-            guard items.indices.contains(index) else { return true }
-
-            let resumeKey = pageKey(for: items[index])
-            let normalized = spreadStart(for: index)
-            if normalized != index {
-                index = normalized
-                lastPage = resumeKey
-            }
-        } else {
-            spreadEnabled = false
-            if let lastPage,
-               let savedIndex = items.firstIndex(where: { pageKey(for: $0) == lastPage }) {
-                index = savedIndex
-            }
-        }
-
-        return true
-    }
-
-    /// Toggles the two-page spread and returns the user-facing status message.
-    mutating func toggleSpread() -> String {
-        let newState = !spreadEnabled
-        _ = setSpreadEnabled(newState)
-        return newState ? "Two-page spread" : "Single page"
-    }
-
-    /// Records whether a decoded page should occupy a spread by itself.
-    /// Unknown pages are treated as normal portrait pages until they are decoded.
-    mutating func setPageWide(index: Int, isWide: Bool) {
-        guard items.indices.contains(index) else { return }
-        if isWide {
-            widePages.insert(index)
-        } else {
-            widePages.remove(index)
-        }
     }
 
     // MARK: Chapters
@@ -286,16 +223,6 @@ struct ReaderNavigation {
     func neighbors() -> [URL] {
         guard !items.isEmpty else { return [] }
 
-        if spreadEnabled {
-            var result: [URL] = []
-            if index + 1 < items.count { result.append(items[index + 1]) }
-            if index + 2 < items.count { result.append(items[index + 2]) }
-            if index + 3 < items.count { result.append(items[index + 3]) }
-            if index > 0 { result.append(items[index - 1]) }
-            if index > 1 { result.append(items[index - 2]) }
-            return result
-        }
-
         var result: [URL] = []
         if index + 1 < items.count { result.append(items[index + 1]) }
         if index > 0 { result.append(items[index - 1]) }
@@ -349,62 +276,6 @@ struct ReaderNavigation {
         index = normalized
         lastPage = pageKey(for: items[normalized])
         return true
-    }
-
-    /// First logical page of the visible spread containing an index.
-    /// Wide pages are standalone. Otherwise pages pair sequentially, with an optional standalone cover.
-    private func spreadStart(for index: Int) -> Int {
-        guard spreadEnabled else { return index }
-        guard items.indices.contains(index) else { return index }
-        if index == 0 { return 0 }
-
-        var start = coverAloneInSpread ? 1 : 0
-        while start < items.count {
-            if start == index {
-                return start
-            }
-
-            if widePages.contains(start) {
-                start += 1
-                continue
-            }
-
-            let next = start + 1
-            if next >= items.count || widePages.contains(next) {
-                start += 1
-            } else if index <= next {
-                return start
-            } else {
-                start += 2
-            }
-        }
-
-        return index
-    }
-
-    /// The next page shown alongside the current page in spread mode, if there is one.
-    var secondaryIndex: Int? {
-        guard spreadEnabled, items.indices.contains(index + 1) else { return nil }
-        if coverAloneInSpread, index == 0 { return nil }
-        guard !widePages.contains(index), !widePages.contains(index + 1) else { return nil }
-        return index + 1
-    }
-
-    mutating func setCoverAloneInSpread(_ enabled: Bool) {
-        coverAloneInSpread = enabled
-        guard spreadEnabled, items.indices.contains(index) else { return }
-
-        let resumeKey = pageKey(for: items[index])
-        let normalized = spreadStart(for: index)
-        if normalized != index {
-            index = normalized
-            lastPage = resumeKey
-        }
-    }
-
-    /// Publicly useful for overlays that need to know which spread contains a future page.
-    func spreadStartIndex(for index: Int) -> Int {
-        spreadStart(for: index)
     }
 
     private mutating func move(_ delta: Int) -> Bool {
