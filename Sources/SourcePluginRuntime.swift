@@ -184,6 +184,12 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         try await injectSettings(for: plugin)
 
         let json: String
+        print("SourcePluginRuntime: parsing catalog for plugin=" + plugin.id
+            + " version=" + plugin.version
+            + " scriptBytes=" + String(script.utf8.count)
+            + " pageURL=" + pageURL.absoluteString
+            + " navigate=" + String(navigate))
+
         if navigate {
             json = try await callAsyncJSON("""
             const result = await ComicViewerSource.parseCatalog();
@@ -538,6 +544,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 
     private func callAsyncJSON(_ script: String, arguments: [String: Any] = [:]) async throws -> String {
+        print("SourcePluginRuntime: CALL-ASYNC-JSON BUILD MARKER 2026-09-28")
         let value: Any?
         do {
             value = try await webView.callAsyncJavaScript(
