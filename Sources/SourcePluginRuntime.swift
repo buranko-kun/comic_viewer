@@ -210,7 +210,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             if case let DecodingError.keyNotFound(key, context) = error {
                 detail = "missing key '\(key.stringValue)' at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
             } else if case let DecodingError.typeMismatch(type, context) = error {
-                detail = "expected \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+                detail = "expected \(type) at \(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
             } else if case let DecodingError.valueNotFound(type, context) = error {
                 detail = "missing \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
             } else if case let DecodingError.dataCorrupted(context) = error {
@@ -300,6 +300,74 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         let metadata: [String: String]?
         let opensCatalog: Bool?
         let canRead: Bool?
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decodeLossyString(forKey: .id)
+            title = try c.decodeLossyString(forKey: .title)
+            description = try c.decodeLossyString(forKey: .description)
+            cover = try c.decodeLossyString(forKey: .cover)
+            series = try c.decodeLossyString(forKey: .series)
+            format = try c.decodeLossyString(forKey: .format)
+            mirrors = try c.decodeLossyStringArray(forKey: .mirrors)
+            hasMirrors = try c.decodeLossyBool(forKey: .hasMirrors)
+            link = try c.decodeLossyString(forKey: .link)
+            size = try c.decodeLossyString(forKey: .size)
+            mustRead = try c.decodeLossyBool(forKey: .mustRead)
+            mustReadTitle = try c.decodeLossyString(forKey: .mustReadTitle)
+            metadata = try c.decodeLossyStringDictionary(forKey: .metadata)
+            opensCatalog = try c.decodeLossyBool(forKey: .opensCatalog)
+            canRead = try c.decodeLossyBool(forKey: .canRead)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, title, description, cover, series, format, mirrors, hasMirrors, link, size
+            case mustRead, mustReadTitle, metadata, opensCatalog, canRead
+        }
+    }
+
+    private extension KeyedDecodingContainer {
+        func decodeLossyString(forKey key: Key) throws -> String? {
+            guard contains(key), try !decodeNil(forKey: key) else { return nil }
+            if let value = try? decode(String.self, forKey: key) { return value }
+            if let value = try? decode(Int.self, forKey: key) { return String(value) }
+            if let value = try? decode(Double.self, forKey: key) { return String(value) }
+            if let value = try? decode(Bool.self, forKey: key) { return String(value) }
+            return nil
+        }
+
+        func decodeLossyBool(forKey key: Key) throws -> Bool? {
+            guard contains(key), try !decodeNil(forKey: key) else { return nil }
+            if let value = try? decode(Bool.self, forKey: key) { return value }
+            if let value = try? decode(String.self, forKey: key) {
+                switch value.lowercased() {
+                case "true", "1", "yes": return true
+                case "false", "0", "no": return false
+                default: return nil
+                }
+            }
+            if let value = try? decode(Int.self, forKey: key) { return value != 0 }
+            return nil
+        }
+
+        func decodeLossyStringArray(forKey key: Key) throws -> [String]? {
+            guard contains(key), try !decodeNil(forKey: key) else { return nil }
+            if let values = try? decode([String].self, forKey: key) { return values }
+            if let values = try? decode([Int].self, forKey: key) { return values.map(String.init) }
+            return nil
+        }
+
+        func decodeLossyStringDictionary(forKey key: Key) throws -> [String: String]? {
+            guard contains(key), try !decodeNil(forKey: key) else { return nil }
+            if let values = try? decode([String: String].self, forKey: key) { return values }
+            if let values = try? decode([String: Int].self, forKey: key) {
+                return values.mapValues(String.init)
+            }
+            if let values = try? decode([String: Double].self, forKey: key) {
+                return values.mapValues(String.init)
+            }
+            return nil
+        }
     }
 
     private struct PluginCatalogRef: Decodable {
