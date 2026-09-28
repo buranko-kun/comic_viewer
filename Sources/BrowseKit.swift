@@ -176,7 +176,7 @@ struct SplitMix64: RandomNumberGenerator {
 /// stable pseudo-random order for the current seed (O(count), no full shuffle of a 70k catalog).
 @MainActor @Observable
 final class RandomShelf {
-    static let getComics = RandomShelf()
+    static let online = RandomShelf()
 
     /// Random landing on by default — the section opens on a random set until you pick a letter.
     var active = true
