@@ -41,6 +41,8 @@ struct CollectionItem: Identifiable, Codable, Hashable {
         source = nil; mirrors = []; mustRead = false
     }
 
+}
+
 /// A named, ordered list of comics the user is organizing (e.g. "Wonder Woman must-reads").
 struct Collection: Identifiable, Codable, Hashable {
     var id: String = UUID().uuidString
