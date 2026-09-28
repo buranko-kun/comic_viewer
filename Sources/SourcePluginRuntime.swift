@@ -114,14 +114,23 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 
     private func catalogImpl(plugin: SourcePlugin, script: String, at explicitURL: URL?) async throws -> RemoteCatalog {
+        let preservesSession = plugin.capabilities?.contains("browser-session") == true
         let url: URL
 
         if let explicitURL {
             url = explicitURL
+            if preservesSession {
+                try await ensureSession(for: plugin)
+            }
         } else {
-            try await loadHTML("<!doctype html><html><body></body></html>")
+            if preservesSession {
+                try await ensureSession(for: plugin)
+            } else {
+                try await loadHTML("<!doctype html><html><body></body></html>")
+            }
+
             try await install(script)
-            try await injectSettings(for: plugin, script: script)
+            try await injectSettings(for: plugin)
 
             let raw = try await callAsyncJSON("""
             return JSON.stringify((async () => {
@@ -136,7 +145,12 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             url = resolved
         }
 
-        return try await parseCatalog(plugin: plugin, script: script, pageURL: url)
+        return try await parseCatalog(
+            plugin: plugin,
+            script: script,
+            pageURL: url,
+            navigate: !preservesSession
+        )
     }
 
     func catalog(plugin: SourcePlugin, at url: URL) async throws -> RemoteCatalog {
@@ -144,18 +158,37 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             guard let script = SourcePluginStore.shared.script(for: plugin) else {
                 throw PluginError.invalidPlugin("installed script is missing")
             }
-            return try await self.parseCatalog(plugin: plugin, script: script, pageURL: url)
+            return try await self.parseCatalog(
+                plugin: plugin,
+                script: script,
+                pageURL: url,
+                navigate: plugin.capabilities?.contains("browser-session") != true
+            )
         }
     }
 
-    private func parseCatalog(plugin: SourcePlugin, script: String, pageURL: URL) async throws -> RemoteCatalog {
-        try await load(URLRequest(url: pageURL))
+    private func parseCatalog(
+        plugin: SourcePlugin,
+        script: String,
+        pageURL: URL,
+        navigate: Bool
+    ) async throws -> RemoteCatalog {
+        if navigate {
+            try await load(URLRequest(url: pageURL))
+        }
         try await install(script)
-        try await injectSettings(for: plugin, script: script)
+        try await injectSettings(for: plugin)
 
-        let json = try await callAsyncJSON("""
-        return JSON.stringify(await ComicViewerSource.parseCatalog())
-        """)
+        let json: String
+        if navigate {
+            json = try await callAsyncJSON("""
+            return JSON.stringify(await ComicViewerSource.parseCatalog())
+            """)
+        } else {
+            json = try await callAsyncJSON("""
+            return JSON.stringify(await ComicViewerSource.parseCatalog({ url: targetURL }))
+            """, arguments: ["targetURL": pageURL.absoluteString])
+        }
 
         guard json.utf8.count <= 8_000_000 else {
             throw PluginError.oversizedResult
@@ -278,13 +311,25 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 
     private func pagesImpl(plugin: SourcePlugin, script: String, at pageURL: URL) async throws -> [URL] {
-        try await load(URLRequest(url: pageURL))
+        let preservesSession = plugin.capabilities?.contains("browser-session") == true
+        if preservesSession {
+            try await ensureSession(for: plugin)
+        } else {
+            try await load(URLRequest(url: pageURL))
+        }
         try await install(script)
-        try await injectSettings(for: plugin, script: script)
+        try await injectSettings(for: plugin)
 
-        let json = try await callAsyncJSON("""
-        return JSON.stringify(await ComicViewerSource.parsePages())
-        """)
+        let json: String
+        if preservesSession {
+            json = try await callAsyncJSON("""
+            return JSON.stringify(await ComicViewerSource.parsePages({ url: targetURL }))
+            """, arguments: ["targetURL": pageURL.absoluteString])
+        } else {
+            json = try await callAsyncJSON("""
+            return JSON.stringify(await ComicViewerSource.parsePages())
+            """)
+        }
 
         guard json.utf8.count <= 4_000_000 else {
             throw PluginError.oversizedResult
@@ -330,7 +375,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         """)
     }
 
-    private func injectSettings(for plugin: SourcePlugin, script: String) async throws {
+    private func injectSettings(for plugin: SourcePlugin) async throws {
         let json = await MainActor.run {
             SourcePluginSettingsStore.shared.settingsJSON(for: plugin)
         }
@@ -346,6 +391,22 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             in: nil,
             contentWorld: .page
         )
+    }
+
+    private func ensureSession(for plugin: SourcePlugin) async throws {
+        guard let rawHomepage = plugin.homepage,
+              let homepage = URL(string: rawHomepage),
+              let host = homepage.host else {
+            throw PluginError.invalidPlugin("source does not declare a valid homepage")
+        }
+
+        if let current = webView.url,
+           current.scheme == homepage.scheme,
+           current.host == host {
+            return
+        }
+
+        try await load(URLRequest(url: homepage))
     }
 
     private func resolveURL(_ raw: String, relativeTo base: URL?) -> URL? {
