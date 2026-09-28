@@ -113,7 +113,7 @@
         const maxAttempts = 4;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            const response = await fetch(url, { credentials: "same-origin" });
+            const response = await fetch(url, { credentials: "include" });
 
             if (response.ok) {
                 const html = await response.text();
@@ -299,8 +299,8 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.1.1",
-            homepage: ORIGIN,
+            version: "1.1.2",
+            homepage: `${ORIGIN}/comic/spawn-1992`,
             description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
         },
