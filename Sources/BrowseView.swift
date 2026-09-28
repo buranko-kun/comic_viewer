@@ -315,9 +315,9 @@ struct BrowseView: View {
                     .pointingHandCursor()
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                // At the top level the title is the Online source picker; drilled in, the folder name.
+                // At the top level show the generic Online section name; drilled in, the folder name.
                 if browseState.stack.isEmpty {
-                    OnlineServerMenu()
+                    Text("Online").font(.headline).foregroundStyle(.white)
                 } else {
                     Text(levelTitle).font(.headline).foregroundStyle(.white).lineLimit(1)
                 }
@@ -504,6 +504,8 @@ struct BrowseView: View {
                     tooltip: comic.description,
                     remotePages: pages
                 )
+
+                RemoteReadingHistory.shared.record(readingComic)
 
                 loadingChild = false
                 router.openComic(readingComic, origin: .browse)
