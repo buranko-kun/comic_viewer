@@ -102,7 +102,7 @@
     }
 
     async function fetchDocument(url) {
-        const response = await fetch(url, { credentials: "include" });
+        const response = await fetch(url, { credentials: "same-origin" });
         if (!response.ok) throw new Error(`ReadComicsOnline returned HTTP ${response.status} for ${url}`);
         const html = await response.text();
         return new DOMParser().parseFromString(html, "text/html");
