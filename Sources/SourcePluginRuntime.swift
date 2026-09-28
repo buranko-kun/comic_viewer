@@ -553,6 +553,14 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 contentWorld: .page
             )
         } catch {
+            let nsError = error as NSError
+            print(
+                "SourcePluginRuntime: callAsyncJavaScript label=" + label
+                + " FAILED domain=" + nsError.domain
+                + " code=" + String(nsError.code)
+                + " description=" + nsError.localizedDescription
+                + " userInfo=" + String(describing: nsError.userInfo)
+            )
             throw PluginError.javascript(error)
         }
 
