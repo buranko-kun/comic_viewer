@@ -528,7 +528,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 }
 
-private extension KeyedDecodingContainer {
+fileprivate extension KeyedDecodingContainer {
     func decodeLossyString(forKey key: Key) throws -> String? {
         guard contains(key), try !decodeNil(forKey: key) else { return nil }
         if let value = try? decode(String.self, forKey: key) { return value }
