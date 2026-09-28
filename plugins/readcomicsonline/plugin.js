@@ -172,7 +172,7 @@
         const title = clean(
             doc.querySelector('meta[property="og:title"]')?.getAttribute("content")
             || doc.title
-        ).replace(/\s*[—-]\s*Read Comics Online\s*$/i, "");
+        ).replace(/s*[—-]s*Read Comics Onlines*$/i, "");
 
         const cover = absolute(
             doc.querySelector('meta[property="og:image"]')?.getAttribute("content"),
@@ -201,7 +201,7 @@
         const anyChapter = new Map();
 
         for (const anchor of doc.querySelectorAll('a[href*="/comic/"]')) {
-            const href = absolute(anchor.getAttribute("href"), baseURL);
+            const href = absolute(anchor.getAttribute("href"));
             if (!href) continue;
 
             let url;
@@ -311,7 +311,7 @@
                 return { name: "ReadComicsOnline", comics, catalogs: [] };
             }
 
-            if (/^\/comic\/[a-z0-9-]+$/i.test(targetURL.pathname)) {
+            if (/^/comic/[a-z0-9-]+$/i.test(targetURL.pathname)) {
                 const doc = await fetchDocument(targetURL.href);
                 const info = seriesInfo(doc, targetURL.href);
                 if (!info.slug) return { name: "ReadComicsOnline", comics: [], catalogs: [] };
