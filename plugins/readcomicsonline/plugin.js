@@ -36,7 +36,7 @@
         const anchor = card.querySelector('a[href*="/comic/"]');
         if (!anchor) return null;
 
-        const href = absolute(anchor.getAttribute("href"), baseURL);
+        const href = absolute(anchor.getAttribute("href"));
         const slug = href && slugFromURL(href);
         if (!href || !slug) return null;
 
@@ -311,7 +311,7 @@
                 return { name: "ReadComicsOnline", comics, catalogs: [] };
             }
 
-            if (/^/comic/[a-z0-9-]+$/i.test(targetURL.pathname)) {
+            if (/^\/comic\/[a-z0-9-]+$/i.test(targetURL.pathname)) {
                 const doc = await fetchDocument(targetURL.href);
                 const info = seriesInfo(doc, targetURL.href);
                 if (!info.slug) return { name: "ReadComicsOnline", comics: [], catalogs: [] };
@@ -340,10 +340,5 @@
         }
 
     };
-        },
-
-        parsePages() {
-            return { pages: pageURLs() };
-        }
     };
 })();
