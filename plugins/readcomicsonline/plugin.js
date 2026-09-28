@@ -22,6 +22,51 @@
             .trim();
     }
 
+    function imageURL(image, baseURL) {
+        if (!image) return null;
+
+        const raw = image.getAttribute("src")
+            || image.getAttribute("data-src")
+            || image.getAttribute("data-lazy-src")
+            || image.getAttribute("data-original")
+            || image.getAttribute("data-original-src");
+
+        if (raw) {
+            const href = absolute(raw, baseURL);
+            if (href && /\/uploads\/manga\//i.test(href)) return href;
+        }
+
+        const srcset = image.getAttribute("srcset") || image.getAttribute("data-srcset");
+        if (srcset) {
+            for (const candidate of srcset.split(",")) {
+                const rawCandidate = candidate.trim().split(/\s+/)[0];
+                const href = absolute(rawCandidate, baseURL);
+                if (href && /\/uploads\/manga\//i.test(href)) return href;
+            }
+        }
+
+        return null;
+    }
+
+    function findCardImage(anchor, baseURL) {
+        // RCO's card markup has changed over time. The cover image is commonly a sibling
+        // of the title anchor rather than inside the anchor's immediate parent.
+        let node = anchor;
+        for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+            const image = node.querySelector("img");
+            const href = imageURL(image, baseURL);
+            if (href) return href;
+        }
+
+        for (let sibling = anchor.previousElementSibling, i = 0; sibling && i < 4; i++, sibling = sibling.previousElementSibling) {
+            const image = sibling.querySelector("img") || (sibling.matches("img") ? sibling : null);
+            const href = imageURL(image, baseURL);
+            if (href) return href;
+        }
+
+        return null;
+    }
+
     function slugFromURL(href) {
         try {
             const path = new URL(href).pathname.split("/").filter(Boolean);
@@ -41,10 +86,7 @@
         if (!href || !slug) return null;
 
         const title = clean(anchor.textContent) || slug;
-        const image = card.querySelector("img[src], img[data-src]");
-        const cover = image
-            ? absolute(image.getAttribute("src") || image.getAttribute("data-src"))
-            : null;
+        const cover = findCardImage(anchor, document.baseURI);
 
         return {
             id: slug,
@@ -70,13 +112,7 @@
             const slug = slugFromURL(href);
             if (!slug || seen.has(slug)) continue;
 
-            const card = anchor.closest(".card") || anchor.parentElement;
-            if (!card) continue;
-
-            const image = card.querySelector("img[src], img[data-src]");
-            const cover = image
-                ? absolute(image.getAttribute("src") || image.getAttribute("data-src"), baseURL)
-                : null;
+            const cover = findCardImage(anchor, baseURL);
 
             seen.add(slug);
             cards.push({
@@ -299,7 +335,7 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.1.2",
+            version: "1.1.3",
             homepage: `${ORIGIN}/comic/spawn-1992`,
             description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
