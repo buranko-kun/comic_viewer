@@ -218,8 +218,32 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             } else {
                 detail = error.localizedDescription
             }
-            print("SourcePluginRuntime: catalog JSON decoding failed: \(detail)")
-            throw PluginError.invalidResultDetail(detail)
+
+            var shape = "unavailable"
+            if let object = try? JSONSerialization.jsonObject(with: data) {
+                if let dictionary = object as? [String: Any] {
+                    let keys = dictionary.keys.sorted().joined(separator: ",")
+                    if let comics = dictionary["comics"] as? [Any] {
+                        var firstTypes = "none"
+                        if let first = comics.first as? [String: Any] {
+                            firstTypes = first.keys.sorted().map { key in
+                                let type = String(describing: Swift.type(of: first[key] as Any))
+                                return "(key)=(type)"
+                            }.joined(separator: ", ")
+                        }
+                        shape = "top-level keys=[(keys)]; comics.count=(comics.count); comics[0] types=[(firstTypes)]"
+                    } else {
+                        shape = "top-level keys=[(keys)]; comics is (dictionary["comics"].map { String(describing: Swift.type(of: $0)) } ?? "missing")"
+                    }
+                } else {
+                    shape = "top-level JSON type=\(String(describing: Swift.type(of: object)))"
+                }
+            }
+
+            let prefix = String(json.prefix(1500))
+            print("SourcePluginRuntime: catalog JSON decoding failed: \(detail); bytes=\(json.utf8.count); \(shape)")
+            print("SourcePluginRuntime: catalog JSON prefix: \(prefix)")
+            throw PluginError.invalidResultDetail("\(detail); \(shape)")
         }
 
         let sourceName = document.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -498,8 +522,10 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         }
 
         guard let text = value as? String else {
+            print("SourcePluginRuntime: callAsyncJavaScript returned non-String value: \(String(describing: value))")
             throw PluginError.invalidResult
         }
+        print("SourcePluginRuntime: callAsyncJavaScript returned JSON bytes=\(text.utf8.count), prefix=\(String(text.prefix(300)))")
         return text
     }
 
