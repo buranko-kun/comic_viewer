@@ -201,7 +201,7 @@
         const anyChapter = new Map();
 
         for (const anchor of doc.querySelectorAll('a[href*="/comic/"]')) {
-            const href = absolute(anchor.getAttribute("href"));
+            const href = absolute(anchor.getAttribute("href"), baseURL);
             if (!href) continue;
 
             let url;
@@ -281,7 +281,7 @@
             name: "ReadComicsOnline",
             version: "1.0.0",
             homepage: ORIGIN,
-            description: "ReadComicsOnline catalog and streamed chapter reader"
+            description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
         },
 
