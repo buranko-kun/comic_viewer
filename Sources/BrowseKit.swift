@@ -1,8 +1,8 @@
 import SwiftUI
 import CoreGraphics
 
-/// Shared look-and-feel for every cover grid in the app — Library, Online (GetComics), the mirrored
-/// ReadComicsOnline directory, and Collections. Centralizing the *visual* layer here keeps all grids
+/// Shared look-and-feel for every cover grid in the app — Library, Online catalogs, and Collections.
+/// Centralizing the *visual* layer here keeps all grids
 /// pixel-identical and gives one place to tune them. (Behavior-only helpers — `RemoteImageCache`,
 /// `ThumbnailCache`, `KeyMonitor`, `SwipeBackDetector` — are already shared and used directly.)
 
@@ -177,7 +177,6 @@ struct SplitMix64: RandomNumberGenerator {
 @MainActor @Observable
 final class RandomShelf {
     static let getComics = RandomShelf()
-    static let readComics = RandomShelf()
 
     /// Random landing on by default — the section opens on a random set until you pick a letter.
     var active = true
