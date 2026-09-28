@@ -127,7 +127,7 @@ struct ReadingStateBackup: Codable {
 
     /// Encode with stable key ordering and human-readable formatting.
     static func encode(_ backup: ReadingStateBackup) throws -> Data {
-        var encoder = JSONEncoder()
+        let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(backup)
     }
