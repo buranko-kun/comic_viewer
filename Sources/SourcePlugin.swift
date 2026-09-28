@@ -6,6 +6,8 @@ struct SourcePlugin: Identifiable, Hashable, Codable {
     let version: String
     let homepage: String?
     let description: String?
+    let tags: [String]?
+    let capabilities: [String]?
     let sourceURL: URL
     let fileName: String
     let installedAt: Date
@@ -18,4 +20,6 @@ struct SourcePluginManifest: Codable, Hashable {
     let version: String
     let homepage: String?
     let description: String?
+    let tags: [String]?
+    let capabilities: [String]?
 }
