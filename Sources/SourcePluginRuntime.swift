@@ -555,7 +555,7 @@ fileprivate extension KeyedDecodingContainer {
     func decodeLossyStringArray(forKey key: Key) throws -> [String]? {
         guard contains(key), try !decodeNil(forKey: key) else { return nil }
         if let values = try? decode([String].self, forKey: key) { return values }
-        if let values = try? decode([Int].self, forKey: key) { return values.map(String.init) }
+        if let values = try? decode([Int].self, forKey: key) { return values.map { String($0) } }
         return nil
     }
 
@@ -570,5 +570,4 @@ fileprivate extension KeyedDecodingContainer {
         }
         return nil
     }
-    }
-
+}
