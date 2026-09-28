@@ -92,17 +92,3 @@ raw file URL.
 The app uses manifest.id as the stable plugin identity. Installing or updating another plugin with
 the same id replaces the installed script while preserving the existing enabled/disabled setting.
 
-
-## ReadComicsOnline example
-
-The repository includes a complete ReadComicsOnline plugin at `plugins/readcomicsonline/plugin.js`. It mirrors
-the site's catalog into the plugin WebView's persistent local storage, drills from series to chapters,
-and resolves each chapter's exact CDN page list through `parsePages()`.
-
-Install it from Preferences → Sources with:
-
-    https://raw.githubusercontent.com/buranko-kun/comic_viewer/main/plugins/readcomicsonline/plugin.js
-
-The site can present a Cloudflare challenge. The plugin relies on the persistent plugin WebView session
-for the site's cookies and storage; generic challenge/session support belongs in the plugin runtime,
-not in source-specific Swift code.
