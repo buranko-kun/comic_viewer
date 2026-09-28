@@ -8,8 +8,7 @@ A native **macOS** comic reader with an **iOS** companion, built in SwiftUI.
   (rotate portrait pages), content-aware fit-to-width, user-created named chapters, resume.
 - **Library** — folders and archives (`.cbz`/`.cbr`/`.zip`/`.rar`/`.7z`), Continue Reading,
   Collections, `ComicInfo.xml` metadata + on-demand fetch from ComicVine.
-- **Online sources** — a Cloudflare-gated ReadComicsOnline connector (mirror + stream ~9.5k series)
-  and a downloadable GetComics catalog.
+- **Online sources** — installable JavaScript source plugins plus configurable catalog feeds.
 - **LAN sharing** — an opt-in Wi-Fi server (pairing code + Bonjour) exposing:
   - a **JSON API** consumed by the native iOS client (`iOS/`), and
   - an **OPDS catalog** any reader (KOReader, Panels, Chunky, …) can browse and download from.
