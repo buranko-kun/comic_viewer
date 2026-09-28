@@ -326,49 +326,6 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         }
     }
 
-    private extension KeyedDecodingContainer {
-        func decodeLossyString(forKey key: Key) throws -> String? {
-            guard contains(key), try !decodeNil(forKey: key) else { return nil }
-            if let value = try? decode(String.self, forKey: key) { return value }
-            if let value = try? decode(Int.self, forKey: key) { return String(value) }
-            if let value = try? decode(Double.self, forKey: key) { return String(value) }
-            if let value = try? decode(Bool.self, forKey: key) { return String(value) }
-            return nil
-        }
-
-        func decodeLossyBool(forKey key: Key) throws -> Bool? {
-            guard contains(key), try !decodeNil(forKey: key) else { return nil }
-            if let value = try? decode(Bool.self, forKey: key) { return value }
-            if let value = try? decode(String.self, forKey: key) {
-                switch value.lowercased() {
-                case "true", "1", "yes": return true
-                case "false", "0", "no": return false
-                default: return nil
-                }
-            }
-            if let value = try? decode(Int.self, forKey: key) { return value != 0 }
-            return nil
-        }
-
-        func decodeLossyStringArray(forKey key: Key) throws -> [String]? {
-            guard contains(key), try !decodeNil(forKey: key) else { return nil }
-            if let values = try? decode([String].self, forKey: key) { return values }
-            if let values = try? decode([Int].self, forKey: key) { return values.map(String.init) }
-            return nil
-        }
-
-        func decodeLossyStringDictionary(forKey key: Key) throws -> [String: String]? {
-            guard contains(key), try !decodeNil(forKey: key) else { return nil }
-            if let values = try? decode([String: String].self, forKey: key) { return values }
-            if let values = try? decode([String: Int].self, forKey: key) {
-                return values.mapValues(String.init)
-            }
-            if let values = try? decode([String: Double].self, forKey: key) {
-                return values.mapValues(String.init)
-            }
-            return nil
-        }
-    }
 
     private struct PluginCatalogRef: Decodable {
         let name: String?
@@ -570,3 +527,48 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         continuation.resume(throwing: error)
     }
 }
+
+private extension KeyedDecodingContainer {
+    func decodeLossyString(forKey key: Key) throws -> String? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        if let value = try? decode(String.self, forKey: key) { return value }
+        if let value = try? decode(Int.self, forKey: key) { return String(value) }
+        if let value = try? decode(Double.self, forKey: key) { return String(value) }
+        if let value = try? decode(Bool.self, forKey: key) { return String(value) }
+        return nil
+    }
+
+    func decodeLossyBool(forKey key: Key) throws -> Bool? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        if let value = try? decode(Bool.self, forKey: key) { return value }
+        if let value = try? decode(String.self, forKey: key) {
+            switch value.lowercased() {
+            case "true", "1", "yes": return true
+            case "false", "0", "no": return false
+            default: return nil
+            }
+        }
+        if let value = try? decode(Int.self, forKey: key) { return value != 0 }
+        return nil
+    }
+
+    func decodeLossyStringArray(forKey key: Key) throws -> [String]? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        if let values = try? decode([String].self, forKey: key) { return values }
+        if let values = try? decode([Int].self, forKey: key) { return values.map(String.init) }
+        return nil
+    }
+
+    func decodeLossyStringDictionary(forKey key: Key) throws -> [String: String]? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        if let values = try? decode([String: String].self, forKey: key) { return values }
+        if let values = try? decode([String: Int].self, forKey: key) {
+            return values.mapValues { String($0) }
+        }
+        if let values = try? decode([String: Double].self, forKey: key) {
+            return values.mapValues { String($0) }
+        }
+        return nil
+    }
+    }
+
