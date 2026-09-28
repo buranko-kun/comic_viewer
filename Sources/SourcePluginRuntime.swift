@@ -328,13 +328,18 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         let json = await MainActor.run {
             SourcePluginSettingsStore.shared.settingsJSON(for: plugin)
         }
-        _ = try await callAsyncJavaScript("""
-        const source = globalThis.ComicViewerSource;
-        if (source && typeof source === "object") {
-            source.settings = JSON.parse(settingsJSON);
-        }
-        return null;
-        """, arguments: ["settingsJSON": json])
+        _ = try await webView.callAsyncJavaScript(
+            """
+            const source = globalThis.ComicViewerSource;
+            if (source && typeof source === "object") {
+                source.settings = JSON.parse(settingsJSON);
+            }
+            return null;
+            """,
+            arguments: ["settingsJSON": json],
+            in: nil,
+            contentWorld: .page
+        )
     }
 
     private func resolveURL(_ raw: String, relativeTo base: URL?) -> URL? {
