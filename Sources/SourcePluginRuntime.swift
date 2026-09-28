@@ -228,21 +228,30 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                         if let first = comics.first as? [String: Any] {
                             firstTypes = first.keys.sorted().map { key in
                                 let type = String(describing: Swift.type(of: first[key] as Any))
-                                return "(key)=(type)"
+                                return key + "=" + type
                             }.joined(separator: ", ")
                         }
-                        shape = "top-level keys=[(keys)]; comics.count=(comics.count); comics[0] types=[(firstTypes)]"
+                        shape = "top-level keys=[" + keys
+                            + "]; comics.count=" + String(comics.count)
+                            + "; comics[0] types=[" + firstTypes + "]"
+                    } else if let comicsValue = dictionary["comics"] {
+                        shape = "top-level keys=[" + keys
+                            + "]; comics is "
+                            + String(describing: Swift.type(of: comicsValue))
                     } else {
-                        shape = "top-level keys=[(keys)]; comics is (dictionary["comics"].map { String(describing: Swift.type(of: $0)) } ?? "missing")"
+                        shape = "top-level keys=[" + keys + "]; comics is missing"
                     }
                 } else {
-                    shape = "top-level JSON type=\(String(describing: Swift.type(of: object)))"
+                    shape = "top-level JSON type="
+                        + String(describing: Swift.type(of: object))
                 }
             }
 
             let prefix = String(json.prefix(1500))
-            print("SourcePluginRuntime: catalog JSON decoding failed: \(detail); bytes=\(json.utf8.count); \(shape)")
-            print("SourcePluginRuntime: catalog JSON prefix: \(prefix)")
+            print("SourcePluginRuntime: catalog JSON decoding failed: " + detail
+                + "; bytes=" + String(json.utf8.count)
+                + "; " + shape)
+            print("SourcePluginRuntime: catalog JSON prefix: " + prefix)
             throw PluginError.invalidResultDetail("\(detail); \(shape)")
         }
 
@@ -522,10 +531,13 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         }
 
         guard let text = value as? String else {
-            print("SourcePluginRuntime: callAsyncJavaScript returned non-String value: \(String(describing: value))")
+            print("SourcePluginRuntime: callAsyncJavaScript returned non-String value: "
+                + String(describing: value))
             throw PluginError.invalidResult
         }
-        print("SourcePluginRuntime: callAsyncJavaScript returned JSON bytes=\(text.utf8.count), prefix=\(String(text.prefix(300)))")
+        print("SourcePluginRuntime: callAsyncJavaScript returned JSON bytes="
+            + String(text.utf8.count)
+            + ", prefix=" + String(text.prefix(300)))
         return text
     }
 
