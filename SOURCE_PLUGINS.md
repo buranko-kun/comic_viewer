@@ -78,6 +78,10 @@ Child folders use:
 
 Relative cover, link, mirror, and child-catalog URLs are resolved against the page being parsed.
 
+## Browser sessions
+
+Installed plugins with a homepage can be opened in Comic Viewer's embedded source browser from Preferences -> Sources. The browser uses the same persistent WebView session as the plugin runtime, so cookies, local storage, login state, and browser challenges can be completed once and reused by the plugin.
+
 ## Installing
 
 Open Preferences -> Sources. Under Source plugins, paste a plugin URL or choose a local .js file.
