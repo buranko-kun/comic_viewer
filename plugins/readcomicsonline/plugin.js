@@ -36,7 +36,7 @@
         const anchor = card.querySelector('a[href*="/comic/"]');
         if (!anchor) return null;
 
-        const href = absolute(anchor.getAttribute("href"));
+        const href = absolute(anchor.getAttribute("href"), baseURL);
         const slug = href && slugFromURL(href);
         if (!href || !slug) return null;
 
@@ -101,17 +101,23 @@
         return { cards, pageCount };
     }
 
-    async function fetchCatalogPage(page) {
-        const url = `${ORIGIN}/comic-list?page=${page}`;
+    async function fetchDocument(url) {
         const response = await fetch(url, { credentials: "include" });
-        if (!response.ok) throw new Error(`Catalog page returned HTTP ${response.status}`);
+        if (!response.ok) throw new Error(\`ReadComicsOnline returned HTTP \${response.status} for \${url}\`);
         const html = await response.text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
+        return new DOMParser().parseFromString(html, "text/html");
+    }
+
+    async function fetchCatalogPage(page) {
+        return fetchCatalogPageURL(\`\${ORIGIN}/comic-list?page=\${page}\`);
+    }
+
+    async function fetchCatalogPageURL(url) {
+        const doc = await fetchDocument(url);
         return parseCatalogPage(doc, url);
     }
 
-    async function loadFullCatalog() {
-        const first = parseCatalogPage(document, location.href);
+    async function loadFullCatalog(first) {
         if (first.cards.length === 0 && first.pageCount <= 1) {
             throw new Error("ReadComicsOnline returned no catalog entries. The Cloudflare check may need solving.");
         }
@@ -162,19 +168,20 @@
         } catch (_) {}
     }
 
-    function seriesInfo() {
+    function seriesInfo(doc, pageURL) {
         const title = clean(
-            document.querySelector('meta[property="og:title"]')?.getAttribute("content")
-            || document.title
+            doc.querySelector('meta[property="og:title"]')?.getAttribute("content")
+            || doc.title
         ).replace(/\s*[—-]\s*Read Comics Online\s*$/i, "");
 
         const cover = absolute(
-            document.querySelector('meta[property="og:image"]')?.getAttribute("content")
+            doc.querySelector('meta[property="og:image"]')?.getAttribute("content"),
+            pageURL
         );
 
         let slug = null;
         try {
-            slug = new URL(location.href).pathname.split("/").filter(Boolean)[1] || null;
+            slug = new URL(pageURL).pathname.split("/").filter(Boolean)[1] || null;
         } catch (_) {}
 
         return { title: title || "Untitled", cover, slug };
@@ -189,11 +196,11 @@
         return a.segment.localeCompare(b.segment, undefined, { numeric: true, sensitivity: "base" });
     }
 
-    function chapterEntries(info) {
+    function chapterEntries(doc, info, baseURL) {
         const hashLabeled = new Map();
         const anyChapter = new Map();
 
-        for (const anchor of document.querySelectorAll('a[href*="/comic/"]')) {
+        for (const anchor of doc.querySelectorAll('a[href*="/comic/"]')) {
             const href = absolute(anchor.getAttribute("href"));
             if (!href) continue;
 
@@ -243,13 +250,13 @@
         return `${CDN_ORIGIN}/uploads/manga/${folder}/chapters/${encodeURIComponent(segment)}/01.jpg`;
     }
 
-    function pageURLs() {
+    function pageURLs(doc, baseURL) {
         const seen = new Set();
         const pages = [];
 
-        for (const image of document.querySelectorAll("img[src], img[data-src]")) {
+        for (const image of doc.querySelectorAll("img[src], img[data-src]")) {
             const raw = image.getAttribute("src") || image.getAttribute("data-src");
-            const href = absolute(raw);
+            const href = absolute(raw, baseURL);
             if (!href) continue;
 
             try {
@@ -275,31 +282,64 @@
             version: "1.0.0",
             homepage: ORIGIN,
             description: "ReadComicsOnline catalog and streamed chapter reader"
+            capabilities: ["browse", "read", "browser-session"]
         },
 
         browseURL: `${ORIGIN}/comic-list?page=1`,
 
-        async parseCatalog() {
-            const isCatalog = location.pathname === "/comic-list";
-            if (isCatalog) {
-                const cached = cachedCatalog();
-                if (cached) {
-                    return { name: "ReadComicsOnline", comics: cached, catalogs: [] };
+        async parseCatalog(context = {}) {
+            const target = absolute(context.url || \`\${ORIGIN}/comic-list?page=1\`);
+            if (!target) throw new Error("Invalid catalog URL");
+
+            const targetURL = new URL(target);
+            if (targetURL.origin !== ORIGIN) {
+                throw new Error("ReadComicsOnline target must stay on readcomicsonline.ru");
+            }
+
+            if (targetURL.pathname === "/comic-list") {
+                const isFirstPage = (targetURL.searchParams.get("page") || "1") === "1";
+                if (isFirstPage) {
+                    const cached = cachedCatalog();
+                    if (cached) {
+                        return { name: "ReadComicsOnline", comics: cached, catalogs: [] };
+                    }
                 }
 
-                const comics = await loadFullCatalog();
-                saveCatalog(comics);
+                const first = await fetchCatalogPageURL(targetURL.href);
+                const comics = await loadFullCatalog(first);
+                if (isFirstPage) saveCatalog(comics);
                 return { name: "ReadComicsOnline", comics, catalogs: [] };
             }
 
-            const info = seriesInfo();
-            if (!info.slug) return { name: "ReadComicsOnline", comics: [], catalogs: [] };
+            if (/^\/comic\/[a-z0-9-]+$/i.test(targetURL.pathname)) {
+                const doc = await fetchDocument(targetURL.href);
+                const info = seriesInfo(doc, targetURL.href);
+                if (!info.slug) return { name: "ReadComicsOnline", comics: [], catalogs: [] };
 
-            return {
-                name: info.title,
-                comics: chapterEntries(info),
-                catalogs: []
-            };
+                return {
+                    name: info.title,
+                    comics: chapterEntries(doc, info, targetURL.href),
+                    catalogs: []
+                };
+            }
+
+            return { name: "ReadComicsOnline", comics: [], catalogs: [] };
+        },
+
+        async parsePages(context = {}) {
+            const target = absolute(context.url || location.href);
+            if (!target) return { pages: [] };
+
+            const targetURL = new URL(target);
+            if (targetURL.origin !== ORIGIN) {
+                throw new Error("ReadComicsOnline page must stay on readcomicsonline.ru");
+            }
+
+            const doc = await fetchDocument(targetURL.href);
+            return { pages: pageURLs(doc, targetURL.href) };
+        }
+
+    };
         },
 
         parsePages() {
