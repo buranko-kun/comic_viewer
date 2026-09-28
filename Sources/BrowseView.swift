@@ -31,7 +31,7 @@ struct BrowseView: View {
     @State private var selectedIDs: Set<String> = []
     /// Memoizes the sorted list + letter index so the 18k-comic grid isn't re-sorted per render.
     @State private var displayCache = DisplayCache()
-    @State private var shelf = RandomShelf.getComics
+    @State private var shelf = RandomShelf.online
     static let pageSize = 400
     // Set when the user picks "New Collection…" from a card, to present the naming sheet.
     @State private var pendingNewCollectionItem: CollectionItem?
