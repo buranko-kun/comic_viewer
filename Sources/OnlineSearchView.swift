@@ -42,8 +42,6 @@ enum UnifiedSearchItem: Identifiable {
 
 /// Unified search across every loaded online catalog.
 /// The search remains indexed and local after the configured sources have loaded.
- across every configured catalog source plus the mirrored ReadComicsOnline index.
-/// This is intentionally an indexed search: it never has to hit a remote site for each keystroke.
 struct OnlineSearchView: View {
     @Environment(AppRouter.self) private var router
     @State private var searchState = OnlineSearchState.shared
@@ -218,10 +216,8 @@ struct OnlineSearchView: View {
         }
     }
 
-    /// Match titles across both online indexes, separator-insensitive, then combine the engines
-    /// into one relevance-ranked result list.
+    /// Match titles across all loaded online catalogs, separator-insensitive, then rank the results.
     private static func rank(catalogItems: [RemoteComic],
-                             readComicsItems: [CatalogEntry],
                              query: String) async -> [UnifiedSearchItem] {
         await Task.detached(priority: .userInitiated) {
             let nq = SearchRank.normalize(query)
