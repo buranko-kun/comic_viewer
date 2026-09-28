@@ -63,7 +63,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         try await install(script)
 
         let json = try await callAsyncJSON("""
-        JSON.stringify((() => {
+        return JSON.stringify((() => {
             const source = globalThis.ComicViewerSource;
             if (!source || typeof source !== "object") throw new Error("ComicViewerSource is missing");
             if (!source.manifest || typeof source.manifest !== "object") throw new Error("manifest is missing");
@@ -124,7 +124,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             try await injectSettings(for: plugin, script: script)
 
             let raw = try await callAsyncJSON("""
-            JSON.stringify((async () => {
+            return JSON.stringify((async () => {
                 const value = ComicViewerSource.browseURL;
                 return typeof value === "function" ? await value() : value;
             })())
@@ -154,7 +154,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         try await injectSettings(for: plugin, script: script)
 
         let json = try await callAsyncJSON("""
-        JSON.stringify(await ComicViewerSource.parseCatalog())
+        return JSON.stringify(await ComicViewerSource.parseCatalog())
         """)
 
         guard json.utf8.count <= 2_000_000 else {
@@ -277,7 +277,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         try await injectSettings(for: plugin, script: script)
 
         let json = try await callAsyncJSON("""
-        JSON.stringify(await ComicViewerSource.parsePages())
+        return JSON.stringify(await ComicViewerSource.parsePages())
         """)
 
         guard json.utf8.count <= 4_000_000 else {
@@ -328,15 +328,13 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         let json = await MainActor.run {
             SourcePluginSettingsStore.shared.settingsJSON(for: plugin)
         }
-        _ = try await evaluateJavaScript("""
-        (() => {
-            const source = globalThis.ComicViewerSource;
-            if (source && typeof source === "object") {
-                source.settings = (json);
-            }
-        })();
-        void 0;
-        """)
+        _ = try await callAsyncJavaScript("""
+        const source = globalThis.ComicViewerSource;
+        if (source && typeof source === "object") {
+            source.settings = JSON.parse(settingsJSON);
+        }
+        return null;
+        """, arguments: ["settingsJSON": json])
     }
 
     private func resolveURL(_ raw: String, relativeTo base: URL?) -> URL? {
