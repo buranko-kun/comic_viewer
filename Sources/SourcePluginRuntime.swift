@@ -157,13 +157,19 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         return JSON.stringify(await ComicViewerSource.parseCatalog())
         """)
 
-        guard json.utf8.count <= 2_000_000 else {
+        guard json.utf8.count <= 8_000_000 else {
             throw PluginError.oversizedResult
         }
 
-        guard let data = json.data(using: .utf8),
-              let document = try? JSONDecoder().decode(PluginCatalog.self, from: data)
-        else {
+        guard let data = json.data(using: .utf8) else {
+            throw PluginError.invalidResult
+        }
+
+        let document: PluginCatalog
+        do {
+            document = try JSONDecoder().decode(PluginCatalog.self, from: data)
+        } catch {
+            print("SourcePluginRuntime: catalog JSON decoding failed: \(error)")
             throw PluginError.invalidResult
         }
 
