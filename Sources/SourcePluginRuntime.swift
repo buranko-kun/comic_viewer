@@ -14,7 +14,8 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         case invalidPlugin(String)
         case navigation(Error)
         case javascript(Error)
-        case invalidResult(String? = nil)
+        case invalidResult
+        case invalidResultDetail(String)
         case oversizedResult
 
         var errorDescription: String? {
@@ -22,11 +23,10 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             case .invalidPlugin(let message): return "Invalid source plugin: \(message)"
             case .navigation(let error): return "Source page couldn't be loaded: \(error.localizedDescription)"
             case .javascript(let error): return "Source plugin failed: \(error.localizedDescription)"
-            case .invalidResult(let detail):
-                if let detail, !detail.isEmpty {
-                    return "Source plugin returned invalid catalog data: \(detail)"
-                }
+            case .invalidResult:
                 return "Source plugin returned invalid catalog data."
+            case .invalidResultDetail(let detail):
+                return "Source plugin returned invalid catalog data: \(detail)"
             case .oversizedResult: return "Source plugin returned too much data."
             }
         }
@@ -219,7 +219,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 detail = error.localizedDescription
             }
             print("SourcePluginRuntime: catalog JSON decoding failed: \(detail)")
-            throw PluginError.invalidResult(detail)
+            throw PluginError.invalidResultDetail(detail)
         }
 
         let sourceName = document.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
