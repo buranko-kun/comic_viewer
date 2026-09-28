@@ -146,8 +146,8 @@ enum WebComic {
 }
 
 /// Strips scene/scanner metadata from a comic file or folder name for display — bracketed
-/// groups like `(2005)`, `(digital)`, `(Minutemen-Slayer)`, `[...]`, plus trailing site tags
-/// such as `GetComics.INFO` — while keeping the human title (issue numbers, volumes) intact.
+/// groups like `(2005)`, `(digital)`, `(Minutemen-Slayer)`, `[...]`, while keeping the human title
+/// (issue numbers, volumes) intact.
 /// Convention-based (not a hardcoded list of groups), so new additions clean up automatically.
 enum TitleCleaner {
     static func clean(_ raw: String) -> String {
@@ -155,9 +155,6 @@ enum TitleCleaner {
         // Any (…) / […] / {…} group → space. Scene tags (year, quality, group) all live in these.
         s = s.replacingOccurrences(
             of: #"[(\[{][^()\[\]{}]*[)\]}]"#, with: " ", options: .regularExpression)
-        // Common non-bracketed trailing site tag.
-        s = s.replacingOccurrences(
-            of: #"(?i)\bGetComics\.INFO\b"#, with: " ", options: .regularExpression)
         // Collapse whitespace, then trim spaces and any dangling separators left behind.
         s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
