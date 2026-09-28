@@ -9,6 +9,7 @@ struct SettingsView: View {
     private let plugins = SourcePluginStore.shared
     @State private var newURL = ""
     @State private var newPluginURL = ""
+    @State private var pluginFilter = ""
     @State private var note: String?
     @State private var sessionPlugin: SourcePlugin?
 
@@ -106,7 +107,20 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(plugins.plugins) { plugin in
+                            HStack(spacing: 8) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                    .foregroundStyle(.secondary)
+                                TextField("Filter sources by name or tag", text: $pluginFilter)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            ForEach(plugins.plugins.filter { plugin in
+                                let query = pluginFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                                guard !query.isEmpty else { return true }
+                                return plugin.name.lowercased().contains(query)
+                                    || plugin.id.lowercased().contains(query)
+                                    || (plugin.tags ?? []).contains { $0.lowercased().contains(query) }
+                            }) { plugin in
                                 HStack(spacing: 10) {
                                     Toggle(
                                         "",
