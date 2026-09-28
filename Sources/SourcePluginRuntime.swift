@@ -137,10 +137,9 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             try await injectSettings(for: plugin)
 
             let raw = try await callAsyncJSON("""
-            return JSON.stringify((async () => {
-                const value = ComicViewerSource.browseURL;
-                return typeof value === "function" ? await value() : value;
-            })())
+            const value = ComicViewerSource.browseURL;
+            const route = typeof value === "function" ? await value() : value;
+            return JSON.stringify(route);
             """, label: "browseURL")
 
             guard let route = decodeJSONString(raw), let resolved = URL(string: route) else {
