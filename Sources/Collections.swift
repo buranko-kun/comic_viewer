@@ -9,15 +9,21 @@ import CoreServices
 /// comic; enough is stored to render a cover and re-open it later (a file path for library items,
 /// a page/mirror links for online items).
 struct CollectionItem: Identifiable, Codable, Hashable {
-    /// `online` = a downloadable GetComics entry; `library` = a local comic; `readComics` = a
-    /// streamed ReadComicsOnline series (opens back into that section, never downloads).
-    enum Kind: String, Codable { case online, library, readComics }
-    var id: String            // online RemoteComic.id, library path, or "rco:<slug>"
+    /// `online` = a remote catalog comic; `library` = a local comic.
+    enum Kind: String, Codable {
+        case online, library
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = raw == Self.library.rawValue ? .library : .online
+        }
+    }
+    var id: String            // online RemoteComic.id or library path
     var kind: Kind
     var title: String
     var cover: String?        // absolute URL string: https (online) or file (library cover image)
     var page: String?         // online source page
-    var path: String?         // library comic path, or the ReadComicsOnline slug
+    var path: String?         // library comic path
     var source: String?       // online source name
     var mirrors: [String]     // online download links
     var mustRead: Bool
@@ -34,20 +40,6 @@ struct CollectionItem: Identifiable, Codable, Hashable {
         cover = c.coverURL?.absoluteString; page = nil; path = c.url.path
         source = nil; mirrors = []; mustRead = false
     }
-
-    init(readComics e: CatalogEntry) {
-        id = "rco:" + e.slug; kind = .readComics; title = e.title
-        cover = e.coverURL?.absoluteString; page = e.pageURL?.absoluteString
-        path = e.slug             // the slug reconstructs the CatalogEntry on open
-        source = "ReadComicsOnline"; mirrors = []; mustRead = false
-    }
-
-    /// Rebuild the ReadComicsOnline series entry this item points to (for `.readComics` items).
-    var readComicsEntry: CatalogEntry? {
-        guard kind == .readComics, let slug = path else { return nil }
-        return CatalogEntry(slug: slug, title: title, coverURL: cover.flatMap { URL(string: $0) })
-    }
-}
 
 /// A named, ordered list of comics the user is organizing (e.g. "Wonder Woman must-reads").
 struct Collection: Identifiable, Codable, Hashable {
@@ -328,7 +320,6 @@ struct CollectionCover: View {
     private var placeholderIcon: String {
         switch item.kind {
         case .library: return "book.closed"
-        case .readComics: return "square.grid.3x3.fill"
         case .online: return "globe"
         }
     }
@@ -692,10 +683,6 @@ struct CollectionsView: View {
             router.readerOrigin = .collections
             AppModel.shared.open(urls: [URL(fileURLWithPath: p)])
             router.route = .reader
-        case .readComics:
-            guard let entry = item.readComicsEntry else { return }
-            router.readComicsSeries = entry     // drill straight into that series
-            router.route = .readcomics
         }
     }
 }
