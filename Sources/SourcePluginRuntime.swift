@@ -31,10 +31,23 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     private let webView: WKWebView
     private var navigationContinuation: CheckedContinuation<Void, Error>?
 
+    /// The persistent browser used by plugin parsing. A generic session UI can embed this same
+    /// web view so cookies and local storage remain available to subsequent plugin requests.
+    var sessionWebView: WKWebView { webView }
+
     override init() {
         webView = WKWebView(frame: .zero)
         super.init()
         webView.navigationDelegate = self
+    }
+
+    /// Open the source homepage in the plugin's persistent browser session so a user can
+    /// complete login, cookie, or browser challenge steps required by the source.
+    func openSession(for plugin: SourcePlugin) async throws {
+        guard let rawURL = plugin.homepage, let url = URL(string: rawURL) else {
+            throw PluginError.invalidPlugin("source does not declare a valid homepage")
+        }
+        try await load(URLRequest(url: url))
     }
 
     func manifest(for script: String) async throws -> SourcePluginManifest {
