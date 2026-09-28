@@ -381,8 +381,7 @@ struct LibraryView: View {
         }
     }
 
-    /// Open a collection item from a home shelf: online → its page in the browser; library → reader;
-    /// readComics → into that ReadComicsOnline series.
+    /// Open a collection item from a home shelf: online → its page in the browser; library → reader.
     private func openCollectionItem(_ item: CollectionItem) {
         switch item.kind {
         case .online:
@@ -391,10 +390,6 @@ struct LibraryView: View {
             guard let p = item.path else { return }
             AppModel.shared.open(urls: [URL(fileURLWithPath: p)])
             router.route = .reader
-        case .readComics:
-            guard let entry = item.readComicsEntry else { return }
-            router.readComicsSeries = entry
-            router.route = .readcomics
         }
     }
 
