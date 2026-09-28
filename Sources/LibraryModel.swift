@@ -190,8 +190,8 @@ final class LibraryModel {
             guard let p = c.progress, p.count > 0 else { return false }   // need a real position
             return p.page >= 3 && p.page < p.count                        // read some, not finished
         }
-        // Streamed ReadComicsOnline issues aren't scanned into `comics`; fold in the ones being read.
-        let remote = ReadComicsHistory.shared.continueComics()
+        // Streamed remote issues aren't scanned into `comics`; fold in the generic remote reading history.
+        let remote = RemoteReadingHistory.shared.continueComics()
         return (started + remote)
             .map { ($0, CentralStore.lastReadDate(forKey: CentralStore.key(for: $0.url)) ?? .distantPast) }
             .sorted { $0.1 > $1.1 }
