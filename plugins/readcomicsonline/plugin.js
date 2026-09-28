@@ -48,23 +48,45 @@
         return null;
     }
 
-    function findCardImage(anchor, baseURL) {
-        // RCO's card markup has changed over time. The cover image is commonly a sibling
-        // of the title anchor rather than inside the anchor's immediate parent.
+    function findCardImage(anchor, baseURL, slug = null) {
+        // Prefer the series-specific cover path. This matches the old RCO parser, which
+        // successfully extracted /uploads/manga/<series>/cover/... from real catalog HTML.
+        if (slug) {
+            const prefix = `/uploads/manga/${slug}/cover/`.toLowerCase();
+            for (const image of anchor.ownerDocument.querySelectorAll("img")) {
+                const href = imageURL(image, baseURL);
+                if (href && new URL(href).pathname.toLowerCase().includes(prefix)) {
+                    return href;
+                }
+            }
+        }
+
+        // Fallback for sites/entries where the manga folder differs from the URL slug.
+        const candidates = [];
         let node = anchor;
-        for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
-            const image = node.querySelector("img");
-            const href = imageURL(image, baseURL);
-            if (href) return href;
+        for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+            const localImages = node.querySelectorAll("img");
+            for (const image of localImages) {
+                const href = imageURL(image, baseURL);
+                if (href && !candidates.includes(href)) candidates.push(href);
+            }
+
+            for (
+                let sibling = node.previousElementSibling, i = 0;
+                sibling && i < 6;
+                i++, sibling = sibling.previousElementSibling
+            ) {
+                const imageNodes = sibling.matches("img")
+                    ? [sibling]
+                    : [...sibling.querySelectorAll("img")];
+                for (const image of imageNodes) {
+                    const href = imageURL(image, baseURL);
+                    if (href && !candidates.includes(href)) candidates.push(href);
+                }
+            }
         }
 
-        for (let sibling = anchor.previousElementSibling, i = 0; sibling && i < 4; i++, sibling = sibling.previousElementSibling) {
-            const image = sibling.querySelector("img") || (sibling.matches("img") ? sibling : null);
-            const href = imageURL(image, baseURL);
-            if (href) return href;
-        }
-
-        return null;
+        return candidates.find(href => /\/uploads\/manga\//i.test(href)) || null;
     }
 
     function slugFromURL(href) {
@@ -86,7 +108,7 @@
         if (!href || !slug) return null;
 
         const title = clean(anchor.textContent) || slug;
-        const cover = findCardImage(anchor, document.baseURI);
+        const cover = findCardImage(anchor, document.baseURI, slugFromURL(href));
 
         return {
             id: slug,
@@ -112,7 +134,7 @@
             const slug = slugFromURL(href);
             if (!slug || seen.has(slug)) continue;
 
-            const cover = findCardImage(anchor, baseURL);
+            const cover = findCardImage(anchor, baseURL, slug);
 
             seen.add(slug);
             cards.push({
@@ -335,7 +357,7 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.1.3",
+            version: "1.1.4",
             homepage: `${ORIGIN}/comic/spawn-1992`,
             description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
