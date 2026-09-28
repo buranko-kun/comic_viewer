@@ -103,13 +103,13 @@
 
     async function fetchDocument(url) {
         const response = await fetch(url, { credentials: "include" });
-        if (!response.ok) throw new Error(\`ReadComicsOnline returned HTTP \${response.status} for \${url}\`);
+        if (!response.ok) throw new Error(`ReadComicsOnline returned HTTP ${response.status} for ${url}`);
         const html = await response.text();
         return new DOMParser().parseFromString(html, "text/html");
     }
 
     async function fetchCatalogPage(page) {
-        return fetchCatalogPageURL(\`\${ORIGIN}/comic-list?page=\${page}\`);
+        return fetchCatalogPageURL(`${ORIGIN}/comic-list?page=${page}`);
     }
 
     async function fetchCatalogPageURL(url) {
@@ -279,7 +279,7 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.0.0",
+            version: "1.1.0",
             homepage: ORIGIN,
             description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
@@ -288,7 +288,7 @@
         browseURL: `${ORIGIN}/comic-list?page=1`,
 
         async parseCatalog(context = {}) {
-            const target = absolute(context.url || \`\${ORIGIN}/comic-list?page=1\`);
+            const target = absolute(context.url || `${ORIGIN}/comic-list?page=1`);
             if (!target) throw new Error("Invalid catalog URL");
 
             const targetURL = new URL(target);
