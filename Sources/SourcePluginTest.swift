@@ -10,6 +10,8 @@ enum SourcePluginTest {
             version: "1.0.0",
             homepage: nil,
             description: "Headless test plugin",
+            tags: nil,
+            capabilities: nil,
             sourceURL: URL(string: "https://example.com/plugin.js")!,
             fileName: "test-source.js",
             installedAt: Date(),
