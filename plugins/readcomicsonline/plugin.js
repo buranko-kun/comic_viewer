@@ -8,7 +8,7 @@
 (() => {
     const ORIGIN = "https://readcomicsonline.ru";
     const CDN_ORIGIN = "https://cdn.readcomicsonline.ru";
-    const CACHE_KEY = "comicviewer.readcomics.catalog.v1";
+    const CACHE_KEY = "comicviewer.readcomics.catalog.v2";
     const CACHE_MAX_AGE = 14 * 24 * 60 * 60 * 1000;
 
     function absolute(raw, base = document.baseURI) {
@@ -357,7 +357,7 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.1.4",
+            version: "1.1.5",
             homepage: `${ORIGIN}/comic/spawn-1992`,
             description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
