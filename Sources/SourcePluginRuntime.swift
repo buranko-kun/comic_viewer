@@ -186,11 +186,31 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         let json: String
         if navigate {
             json = try await callAsyncJSON("""
-            return JSON.stringify(await ComicViewerSource.parseCatalog())
+            const result = await ComicViewerSource.parseCatalog();
+            const encoded = JSON.stringify(result);
+            if (encoded === "{}") {
+                throw new Error(
+                    "parseCatalog returned {}: type=" + typeof result
+                    + "; tag=" + Object.prototype.toString.call(result)
+                    + "; keys=" + Object.keys(result || {}).join(",")
+                    + "; ownNames=" + Object.getOwnPropertyNames(result || {}).join(",")
+                );
+            }
+            return encoded;
             """)
         } else {
             json = try await callAsyncJSON("""
-            return JSON.stringify(await ComicViewerSource.parseCatalog({ url: targetURL }))
+            const result = await ComicViewerSource.parseCatalog({ url: targetURL });
+            const encoded = JSON.stringify(result);
+            if (encoded === "{}") {
+                throw new Error(
+                    "parseCatalog returned {}: type=" + typeof result
+                    + "; tag=" + Object.prototype.toString.call(result)
+                    + "; keys=" + Object.keys(result || {}).join(",")
+                    + "; ownNames=" + Object.getOwnPropertyNames(result || {}).join(",")
+                );
+            }
+            return encoded;
             """, arguments: ["targetURL": pageURL.absoluteString])
         }
 
