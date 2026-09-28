@@ -7,7 +7,7 @@ import AppKit
 final class AppRouter {
     static let shared = AppRouter()
 
-    enum Route { case library, local, onlineSearch, reader, browse, collections, readcomics }
+    enum Route { case library, local, onlineSearch, reader, browse, collections }
     var route: Route = .library
     /// Global "Keyboard Shortcuts" overlay toggle (menu ⌘/, or ? in the reader).
     var showShortcuts = false
@@ -26,9 +26,6 @@ final class AppRouter {
     /// Where the currently selected comic was opened from before entering its chapter grid.
     private(set) var selectedComicOrigin: ReaderOrigin = .home
 
-    /// ReadComicsOnline navigation, kept on the router so it survives leaving for the reader and
-    /// coming back. `readComicsSeries` is the drilled-in series (nil = the directory grid).
-    var readComicsSeries: CatalogEntry?
 
     /// Where the reader was opened from, so Escape returns to the right context (its series menu)
     /// instead of always dropping to Home — matters when opening from the "Continue Reading" shelf.
@@ -37,7 +34,6 @@ final class AppRouter {
         case library(path: [URL])       // restore this drilled library folder (a local comic's series)
         case local                       // restore the flat local library
         case collections                 // restore the Collections screen
-        case readComics(CatalogEntry)   // restore the legacy ReadComicsOnline series screen
         case browse                     // restore the unified Online browser
     }
     var readerOrigin: ReaderOrigin = .home
@@ -78,27 +74,15 @@ final class AppRouter {
     }
 
     /// Open a comic straight to reading from a Home shelf ("Continue Reading"), remembering its
-    /// context so Escape returns to that comic's series menu — the ReadComicsOnline series for an
-    /// online issue, or the containing library folder for a local comic.
+    /// context so Escape returns to the generic Online browser for streamed comics, or the containing
+    /// library folder for a local comic.
     func openFromShelf(_ comic: Comic) {
         openComic(comic)
-        if let entry = Self.readComicsEntry(for: comic) {
-            readerOrigin = .readComics(entry)
-        } else if !comic.isRemote {
+        if comic.isRemote {
+            readerOrigin = .browse
+        } else {
             readerOrigin = .library(path: [comic.url.deletingLastPathComponent()])
         }
-    }
-
-    /// Reconstruct the ReadComicsOnline series a streamed issue belongs to, from its chapter URL
-    /// (`…/comic/<slug>/<segment>`). Prefers the mirrored catalog entry (real series cover), else
-    /// synthesizes one from the issue. Returns nil for non-ReadComicsOnline comics.
-    static func readComicsEntry(for comic: Comic) -> CatalogEntry? {
-        guard comic.isRemote, comic.url.host?.contains("readcomicsonline.ru") == true,
-              comic.url.pathComponents.contains("comic") else { return nil }
-        let slug = comic.url.deletingLastPathComponent().lastPathComponent
-        guard !slug.isEmpty, slug != "comic" else { return nil }
-        if let e = ReadComicsCatalogStore.shared.entries.first(where: { $0.slug == slug }) { return e }
-        return CatalogEntry(slug: slug, title: comic.series, coverURL: comic.coverURL)
     }
 
     /// Open a comic at a specific page index (the chapter start, or the resume page when the
@@ -140,17 +124,11 @@ final class AppRouter {
     /// Open the online (OPDS) browser.
     func showBrowse() { route = .browse }
 
-    /// Open the mirrored ReadComicsOnline directory (streamed, ~9.5k series).
-    func showReadComics() { route = .readcomics }
+    /// Open the online source browser.
+    func showBrowse() { route = .browse }
 
-    /// Open the unified Online section at whichever server was last used.
-    func showOnline() { route = OnlineServerStore.shared.current.route }
-
-    /// Switch the Online section to another server (and route there).
-    func switchOnlineServer(_ server: OnlineServer) {
-        OnlineServerStore.shared.current = server
-        route = server.route
-    }
+    /// Open the online section.
+    func showOnline() { route = .browse }
 
     /// Open the Collections screen (at its top level).
     func showCollections() {
@@ -169,11 +147,6 @@ final class AppRouter {
             case .reader:
                 // Escape returns to the context the reader was opened from (its series menu).
                 switch readerOrigin {
-                case .readComics(let entry):
-                    readerOrigin = .home
-                    readComicsSeries = entry
-                    route = .readcomics
-                    return true
                 case .library(let p):
                     readerOrigin = .home
                     selectedComic = nil
@@ -199,7 +172,7 @@ final class AppRouter {
                     showLibrary()
                     return true
                 }
-            case .browse, .readcomics, .onlineSearch:
+            case .browse, .onlineSearch:
                 showLibrary()
                 return true
             case .local:
@@ -225,56 +198,6 @@ final class AppRouter {
 
     /// The slide timing used by every "back" navigation.
     static let backSlide: Animation = .easeInOut(duration: 0.3)
-}
-
-/// The catalog servers the unified **Online** section can show. Each maps to its own browse screen
-/// (route) and specialized behavior — GetComics downloads, ReadComicsOnline streams — but the user
-/// sees one section with a source picker.
-enum OnlineServer: String, CaseIterable, Hashable {
-    case getComics, readComics
-    var label: String { self == .getComics ? "Catalogs" : "ReadComicsOnline" }
-    var route: AppRouter.Route { self == .getComics ? .browse : .readcomics }
-}
-
-/// Remembers which Online server was last used (persisted), so the "Online" button and the section
-/// re-open where you left off.
-@MainActor @Observable
-final class OnlineServerStore {
-    static let shared = OnlineServerStore()
-    private static let key = "onlineServer"
-    var current: OnlineServer {
-        didSet { UserDefaults.standard.set(current.rawValue, forKey: Self.key) }
-    }
-    init() {
-        current = OnlineServer(rawValue: UserDefaults.standard.string(forKey: Self.key) ?? "") ?? .getComics
-    }
-}
-
-/// The Online-section source picker: a compact dropdown showing the current server, switching to
-/// another on selection. Shared by both browse toolbars so the section feels unified.
-struct OnlineServerMenu: View {
-    @Environment(AppRouter.self) private var router
-    @State private var store = OnlineServerStore.shared
-
-    var body: some View {
-        Menu {
-            ForEach(OnlineServer.allCases, id: \.self) { server in
-                Button { if server != store.current { router.switchOnlineServer(server) } } label: {
-                    if server == store.current { Label(server.label, systemImage: "checkmark") }
-                    else { Text(server.label) }
-                }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Text(store.current.label).font(.headline).foregroundStyle(.white)
-                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .pointingHandCursor()
-    }
 }
 
 /// Switches between the Library grid and the Reader.
@@ -306,8 +229,6 @@ struct RootView: View {
                 BrowseView()
             case .collections:
                 CollectionsView()
-            case .readcomics:
-                ReadComicsBrowseView()
             }
         }
         // A back navigation slides the current section off to the right and the previous in from
