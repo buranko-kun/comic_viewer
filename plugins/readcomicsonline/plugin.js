@@ -101,11 +101,35 @@
         return { cards, pageCount };
     }
 
+    const RETRYABLE_STATUS = new Set([
+        429, 500, 502, 503, 504, 520, 521, 522, 523, 524
+    ]);
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
     async function fetchDocument(url) {
-        const response = await fetch(url, { credentials: "same-origin" });
-        if (!response.ok) throw new Error(`ReadComicsOnline returned HTTP ${response.status} for ${url}`);
-        const html = await response.text();
-        return new DOMParser().parseFromString(html, "text/html");
+        const maxAttempts = 4;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const response = await fetch(url, { credentials: "same-origin" });
+
+            if (response.ok) {
+                const html = await response.text();
+                return new DOMParser().parseFromString(html, "text/html");
+            }
+
+            if (!RETRYABLE_STATUS.has(response.status) || attempt === maxAttempts) {
+                throw new Error(
+                    `ReadComicsOnline returned HTTP ${response.status} for ${url}`
+                );
+            }
+
+            await sleep(1000 * attempt);
+        }
+
+        throw new Error(`ReadComicsOnline request failed for ${url}`);
     }
 
     async function fetchCatalogPage(page) {
@@ -125,20 +149,16 @@
         const all = [...first.cards];
         const seen = new Set(all.map(item => item.id));
 
-        // The site currently exposes many paginated catalog pages. Fetch a small batch at a time
-        // instead of launching hundreds of requests simultaneously.
-        for (let page = 2; page <= first.pageCount; page += 6) {
-            const batch = [];
-            for (let i = page; i <= Math.min(first.pageCount, page + 5); i++) {
-                batch.push(fetchCatalogPage(i));
-            }
-            const results = await Promise.all(batch);
-            for (const result of results) {
-                for (const item of result.cards) {
-                    if (seen.has(item.id)) continue;
-                    seen.add(item.id);
-                    all.push(item);
-                }
+        // ReadComicsOnline can return HTTP 520 when several catalog pages are
+        // requested concurrently. Fetch one page at a time and keep a small delay between requests.
+        for (let page = 2; page <= first.pageCount; page++) {
+            await sleep(750);
+
+            const result = await fetchCatalogPage(page);
+            for (const item of result.cards) {
+                if (seen.has(item.id)) continue;
+                seen.add(item.id);
+                all.push(item);
             }
         }
 
@@ -279,7 +299,7 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.1.0",
+            version: "1.1.1",
             homepage: ORIGIN,
             description: "ReadComicsOnline catalog and streamed chapter reader",
             capabilities: ["browse", "read", "browser-session"]
