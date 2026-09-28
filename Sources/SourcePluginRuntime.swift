@@ -14,7 +14,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         case invalidPlugin(String)
         case navigation(Error)
         case javascript(Error)
-        case invalidResult
+        case invalidResult(String? = nil)
         case oversizedResult
 
         var errorDescription: String? {
@@ -22,7 +22,11 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             case .invalidPlugin(let message): return "Invalid source plugin: \(message)"
             case .navigation(let error): return "Source page couldn't be loaded: \(error.localizedDescription)"
             case .javascript(let error): return "Source plugin failed: \(error.localizedDescription)"
-            case .invalidResult: return "Source plugin returned invalid catalog data."
+            case .invalidResult(let detail):
+                if let detail, !detail.isEmpty {
+                    return "Source plugin returned invalid catalog data: \(detail)"
+                }
+                return "Source plugin returned invalid catalog data."
             case .oversizedResult: return "Source plugin returned too much data."
             }
         }
@@ -202,8 +206,20 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         do {
             document = try JSONDecoder().decode(PluginCatalog.self, from: data)
         } catch {
-            print("SourcePluginRuntime: catalog JSON decoding failed: \(error)")
-            throw PluginError.invalidResult
+            let detail: String
+            if case let DecodingError.keyNotFound(key, context) = error {
+                detail = "missing key '\(key.stringValue)' at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            } else if case let DecodingError.typeMismatch(type, context) = error {
+                detail = "expected \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            } else if case let DecodingError.valueNotFound(type, context) = error {
+                detail = "missing \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            } else if case let DecodingError.dataCorrupted(context) = error {
+                detail = "data corrupted at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+            } else {
+                detail = error.localizedDescription
+            }
+            print("SourcePluginRuntime: catalog JSON decoding failed: \(detail)")
+            throw PluginError.invalidResult(detail)
         }
 
         let sourceName = document.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
