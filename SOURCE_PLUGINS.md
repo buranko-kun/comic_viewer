@@ -95,13 +95,14 @@ the same id replaces the installed script while preserving the existing enabled/
 
 ## ReadComicsOnline example
 
-The repository includes a complete ReadComicsOnline plugin at `plugins/readcomicsonline.js`. It mirrors
+The repository includes a complete ReadComicsOnline plugin at `plugins/readcomicsonline/plugin.js`. It mirrors
 the site's catalog into the plugin WebView's persistent local storage, drills from series to chapters,
 and resolves each chapter's exact CDN page list through `parsePages()`.
 
 Install it from Preferences → Sources with:
 
-    https://raw.githubusercontent.com/buranko-kun/comic_viewer/main/plugins/readcomicsonline.js
+    https://raw.githubusercontent.com/buranko-kun/comic_viewer/main/plugins/readcomicsonline/plugin.js
 
-The site can present a Cloudflare challenge. The plugin uses the normal WKWebView data store, so a
-challenge cleared elsewhere in Comic Viewer can be reused by the plugin WebView.
+The site can present a Cloudflare challenge. The plugin relies on the persistent plugin WebView session
+for the site's cookies and storage; generic challenge/session support belongs in the plugin runtime,
+not in source-specific Swift code.
