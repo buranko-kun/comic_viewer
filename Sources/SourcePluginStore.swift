@@ -118,6 +118,7 @@ final class SourcePluginStore {
             description: manifest.description,
             tags: manifest.tags,
             capabilities: manifest.capabilities,
+            settings: manifest.settings,
             sourceURL: sourceURL,
             fileName: fileName,
             installedAt: Date(),

@@ -9,9 +9,9 @@ struct SettingsView: View {
     private let plugins = SourcePluginStore.shared
     @State private var newURL = ""
     @State private var newPluginURL = ""
-    @State private var pluginFilter = ""
     @State private var note: String?
     @State private var sessionPlugin: SourcePlugin?
+    @State private var settingsPlugin: SourcePlugin?
 
     var body: some View {
         TabView {
@@ -35,6 +35,9 @@ struct SettingsView: View {
 .frame(width: 760, height: 540)
         .sheet(item: $sessionPlugin) { plugin in
             SourcePluginSessionSheet(plugin: plugin)
+        }
+        .sheet(item: $settingsPlugin) { plugin in
+            SourcePluginSettingsView(plugin: plugin)
         }
     }
 
@@ -107,20 +110,7 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            HStack(spacing: 8) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                    .foregroundStyle(.secondary)
-                                TextField("Filter sources by name or tag", text: $pluginFilter)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            ForEach(plugins.plugins.filter { plugin in
-                                let query = pluginFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                                guard !query.isEmpty else { return true }
-                                return plugin.name.lowercased().contains(query)
-                                    || plugin.id.lowercased().contains(query)
-                                    || (plugin.tags ?? []).contains { $0.lowercased().contains(query) }
-                            }) { plugin in
+                            ForEach(plugins.plugins) { plugin in
                                 HStack(spacing: 10) {
                                     Toggle(
                                         "",
@@ -153,6 +143,16 @@ struct SettingsView: View {
                                     }
                                     .buttonStyle(.borderless)
                                     .help("Open source browser session")
+
+                                    if !(plugin.settings ?? []).isEmpty {
+                                        Button {
+                                            settingsPlugin = plugin
+                                        } label: {
+                                            Image(systemName: "gearshape")
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .help("Source settings")
+                                    }
 
                                     Button {
                                         Task {
@@ -778,5 +778,94 @@ private struct SharingTab: View {
             Text(label).font(.caption.weight(.semibold)).frame(width: 90, alignment: .leading)
             Text(value).font(.caption).textSelection(.enabled)
         }
+    }
+}
+
+
+private struct SourcePluginSettingsView: View {
+    let plugin: SourcePlugin
+    @State private var store = SourcePluginSettingsStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(plugin.name).font(.title2.weight(.semibold))
+            Text("Source settings").font(.headline)
+
+            if let settings = plugin.settings, !settings.isEmpty {
+                ForEach(settings) { setting in
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 8) {
+                            switch setting.type.lowercased() {
+                            case "toggle", "bool", "boolean":
+                                Toggle(setting.title, isOn: boolBinding(for: setting))
+                            case "select", "picker":
+                                HStack {
+                                    Text(setting.title)
+                                    Spacer()
+                                    Picker(setting.title, selection: stringBinding(for: setting)) {
+                                        ForEach(setting.options ?? [], id: \.self) { option in
+                                            Text(option).tag(option)
+                                        }
+                                    }
+                                    .frame(width: 180)
+                                }
+                            default:
+                                TextField(setting.title, text: stringBinding(for: setting))
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            if let description = setting.description {
+                                Text(description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(4)
+                    }
+                }
+            } else {
+                Text("This source has no configurable settings.")
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button("Reset to Defaults") {
+                    store.reset(plugin)
+                }
+                Button("Done") {
+                    NSApp.keyWindow?.close()
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
+    }
+
+    private func stringBinding(for setting: SourcePluginSetting) -> Binding<String> {
+        Binding(
+            get: {
+                switch store.value(for: plugin, key: setting.id) {
+                case .string(let value): return value
+                case .number(let value): return String(value)
+                case .bool(let value): return String(value)
+                }
+            },
+            set: { value in
+                store.set(.string(value), for: plugin, key: setting.id)
+            }
+        )
+    }
+
+    private func boolBinding(for setting: SourcePluginSetting) -> Binding<Bool> {
+        Binding(
+            get: {
+                if case .bool(let value) = store.value(for: plugin, key: setting.id) { return value }
+                return false
+            },
+            set: { value in
+                store.set(.bool(value), for: plugin, key: setting.id)
+            }
+        )
     }
 }

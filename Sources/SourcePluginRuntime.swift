@@ -121,6 +121,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         } else {
             try await loadHTML("<!doctype html><html><body></body></html>")
             try await install(script)
+            try await injectSettings(for: plugin, script: script)
 
             let raw = try await callAsyncJSON("""
             JSON.stringify((async () => {
@@ -150,6 +151,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     private func parseCatalog(plugin: SourcePlugin, script: String, pageURL: URL) async throws -> RemoteCatalog {
         try await load(URLRequest(url: pageURL))
         try await install(script)
+        try await injectSettings(for: plugin, script: script)
 
         let json = try await callAsyncJSON("""
         JSON.stringify(await ComicViewerSource.parseCatalog())
@@ -272,6 +274,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     private func pagesImpl(plugin: SourcePlugin, script: String, at pageURL: URL) async throws -> [URL] {
         try await load(URLRequest(url: pageURL))
         try await install(script)
+        try await injectSettings(for: plugin, script: script)
 
         let json = try await callAsyncJSON("""
         JSON.stringify(await ComicViewerSource.parsePages())
@@ -317,6 +320,21 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         _ = try await evaluateJavaScript("""
         delete globalThis.ComicViewerSource;
         \(script)
+        void 0;
+        """)
+    }
+
+    private func injectSettings(for plugin: SourcePlugin, script: String) async throws {
+        let json = await MainActor.run {
+            SourcePluginSettingsStore.shared.settingsJSON(for: plugin)
+        }
+        _ = try await evaluateJavaScript("""
+        (() => {
+            const source = globalThis.ComicViewerSource;
+            if (source && typeof source === "object") {
+                source.settings = (json);
+            }
+        })();
         void 0;
         """)
     }
