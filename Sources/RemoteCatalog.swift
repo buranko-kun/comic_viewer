@@ -22,6 +22,10 @@ struct RemoteComic: Identifiable, Hashable {
     var mustRead: Bool = false
     var mustReadTitle: String? = nil
     var size: String? = nil
+    /// Plugin sources can use a comic card as a navigable catalog entry rather than a readable issue.
+    var opensCatalog: Bool = false
+    /// Plugin sources can resolve the card into page image URLs and open it directly in the reader.
+    var canRead: Bool = false
 
     var coverURL: URL? { coverString.flatMap { URL(string: $0) } }
     var pageURL: URL? { pageString.flatMap { URL(string: $0) } }

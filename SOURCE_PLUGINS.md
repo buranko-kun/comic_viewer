@@ -42,6 +42,14 @@ browseURL can be a URL string or a function that returns one.
 searchURL(query) is optional in the v1 schema. The current Online screen already performs local search
 across loaded plugin results; a network search hook is reserved for a future source-aware search UI.
 
+A readable comic can additionally implement `parsePages()`. It runs after the comic's `link` has been
+loaded in the plugin WebView and returns:
+
+    { pages: ["https://example.com/001.jpg", "https://example.com/002.jpg"] }
+
+Set `canRead: true` on those catalog entries. Comic Viewer resolves the returned URLs and streams
+them directly into the reader, so the plugin does not need filesystem access or native Swift code.
+
 ## Catalog result
 
 Each comic may provide:
@@ -59,6 +67,8 @@ Each comic may provide:
 - mustRead
 - mustReadTitle
 - metadata
+- opensCatalog — when true, tapping the card opens the plugin's catalog at `link`
+- canRead — when true, tapping the card asks the plugin for its page images
 
 Child folders use:
 
@@ -67,6 +77,10 @@ Child folders use:
     ]
 
 Relative cover, link, mirror, and child-catalog URLs are resolved against the page being parsed.
+
+## Browser sessions
+
+Installed plugins with a homepage can be opened in Comic Viewer's embedded source browser from Preferences -> Sources. The browser uses the same persistent WebView session as the plugin runtime, so cookies, local storage, login state, and browser challenges can be completed once and reused by the plugin.
 
 ## Installing
 
@@ -81,3 +95,4 @@ raw file URL.
 
 The app uses manifest.id as the stable plugin identity. Installing or updating another plugin with
 the same id replaces the installed script while preserving the existing enabled/disabled setting.
+

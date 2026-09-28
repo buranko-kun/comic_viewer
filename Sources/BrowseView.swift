@@ -31,7 +31,7 @@ struct BrowseView: View {
     @State private var selectedIDs: Set<String> = []
     /// Memoizes the sorted list + letter index so the 18k-comic grid isn't re-sorted per render.
     @State private var displayCache = DisplayCache()
-    @State private var shelf = RandomShelf.getComics
+    @State private var shelf = RandomShelf.online
     static let pageSize = 400
     // Set when the user picks "New Collection…" from a card, to present the naming sheet.
     @State private var pendingNewCollectionItem: CollectionItem?
@@ -52,7 +52,7 @@ struct BrowseView: View {
         let shown = filteredComics.count
         let noun = shown == 1 ? "comic" : "comics"
         if browseState.mustReadOnly { return "\(shown) must-read \(noun)" }
-        let noMirror = filteredComics.lazy.filter { !$0.hasMirrors }.count
+        let noMirror = filteredComics.lazy.filter { !$0.hasMirrors && !$0.opensCatalog && !$0.canRead }.count
         return "\(shown) \(noun) · \(noMirror) without mirror"
     }
 
@@ -315,9 +315,9 @@ struct BrowseView: View {
                     .pointingHandCursor()
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                // At the top level the title is the Online source picker; drilled in, the folder name.
+                // At the top level show the generic Online section name; drilled in, the folder name.
                 if browseState.stack.isEmpty {
-                    OnlineServerMenu()
+                    Text("Online").font(.headline).foregroundStyle(.white)
                 } else {
                     Text(levelTitle).font(.headline).foregroundStyle(.white).lineLimit(1)
                 }
@@ -435,13 +435,84 @@ struct BrowseView: View {
         }
     }
 
-    /// Tap: in select mode toggle the comic; otherwise open its source page in the browser.
+    /// Tap a remote card. Plugins can turn cards into sub-catalogs or stream their page images
+    /// directly into the reader; ordinary catalogs keep the existing browser-open behavior.
     private func tapComic(_ comic: RemoteComic) {
         if selecting {
             if selectedIDs.contains(comic.id) { selectedIDs.remove(comic.id) }
             else { selectedIDs.insert(comic.id) }
-        } else if let url = comic.pageURL {
+            return
+        }
+
+        guard let url = comic.pageURL else { return }
+
+        guard let sourceID = comic.sourceID,
+              let plugin = plugins.plugin(id: sourceID) else {
             NSWorkspace.shared.open(url)
+            return
+        }
+
+        if comic.opensCatalog {
+            openPluginCatalog(plugin, at: url)
+        } else if comic.canRead {
+            openPluginComic(plugin, comic: comic)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func openPluginCatalog(_ plugin: SourcePlugin, at url: URL) {
+        loadingChild = true
+        childError = nil
+        browseState.clearSearch()
+        browseState.resetScroll()
+
+        Task {
+            do {
+                browseState.stack.append(
+                    try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: url)
+                )
+            } catch {
+                childError = error.localizedDescription
+            }
+            loadingChild = false
+        }
+    }
+
+    private func openPluginComic(_ plugin: SourcePlugin, comic: RemoteComic) {
+        guard let url = comic.pageURL else { return }
+
+        loadingChild = true
+        childError = nil
+
+        Task {
+            do {
+                let pages = try await SourcePluginRuntime.shared.pages(for: plugin, comic: comic)
+                guard !pages.isEmpty else {
+                    throw SourcePluginRuntime.PluginError.invalidResult
+                }
+
+                let readingComic = Comic(
+                    url: url,
+                    series: comic.series ?? comic.title,
+                    isArchive: false,
+                    coverURL: pages.first ?? comic.coverURL,
+                    pageCount: pages.count,
+                    progress: nil,
+                    chapterCount: 0,
+                    metaTitle: comic.title,
+                    tooltip: comic.description,
+                    remotePages: pages
+                )
+
+                RemoteReadingHistory.shared.record(readingComic)
+
+                loadingChild = false
+                router.openComic(readingComic, origin: .browse)
+            } catch {
+                childError = error.localizedDescription
+                loadingChild = false
+            }
         }
     }
 
@@ -541,7 +612,7 @@ private struct ComicCard: View {
 
     private var borderColor: Color {
         if selected { return .accentColor }
-        return comic.hasMirrors ? .white.opacity(0.12) : .orange.opacity(0.9)
+        return comic.hasMirrors || comic.opensCatalog || comic.canRead ? .white.opacity(0.12) : .orange.opacity(0.9)
     }
 
     var body: some View {
@@ -554,7 +625,7 @@ private struct ComicCard: View {
                     .overlay(alignment: .topLeading) {
                         if selecting { selectionMark } else if comic.mustRead { mustReadBadge }
                     }
-                    .overlay(alignment: .bottomLeading) { if !comic.hasMirrors { noMirrorBadge } }
+                    .overlay(alignment: .bottomLeading) { if !comic.hasMirrors && !comic.opensCatalog && !comic.canRead { noMirrorBadge } }
                     .overlay { if !selecting && comic.hasMirrors { DownloadOverlay(item: CollectionItem(remote: comic)) } }
             }
             .contentShape(Rectangle())

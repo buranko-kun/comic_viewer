@@ -30,6 +30,12 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
 
     private let webView: WKWebView
     private var navigationContinuation: CheckedContinuation<Void, Error>?
+    /// All operations use one WKWebView, so navigation and JavaScript execution must never overlap.
+    private var operationTail: Task<Void, Never>?
+
+    /// The persistent browser used by plugin parsing. A generic session UI can embed this same
+    /// web view so cookies and local storage remain available to subsequent plugin requests.
+    var sessionWebView: WKWebView { webView }
 
     override init() {
         webView = WKWebView(frame: .zero)
@@ -37,7 +43,22 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
     }
 
+    /// Open the source homepage in the plugin's persistent browser session so a user can
+    /// complete login, cookie, or browser challenge steps required by the source.
+    func openSession(for plugin: SourcePlugin) async throws {
+        try await serialized {
+            guard let rawURL = plugin.homepage, let url = URL(string: rawURL) else {
+                throw PluginError.invalidPlugin("source does not declare a valid homepage")
+            }
+            try await self.load(URLRequest(url: url))
+        }
+    }
+
     func manifest(for script: String) async throws -> SourcePluginManifest {
+        try await serialized { try await self.manifestImpl(for: script) }
+    }
+
+    private func manifestImpl(for script: String) async throws -> SourcePluginManifest {
         try await loadHTML("<!doctype html><html><body></body></html>")
         try await install(script)
 
@@ -78,13 +99,21 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 
     func catalog(plugin: SourcePlugin) async throws -> RemoteCatalog {
-        guard let script = SourcePluginStore.shared.script(for: plugin) else {
-            throw PluginError.invalidPlugin("installed script is missing")
+        try await serialized {
+            guard let script = SourcePluginStore.shared.script(for: plugin) else {
+                throw PluginError.invalidPlugin("installed script is missing")
+            }
+            return try await self.catalogImpl(plugin: plugin, script: script, at: nil)
         }
-        return try await catalog(plugin: plugin, script: script, at: nil)
     }
 
     func catalog(plugin: SourcePlugin, script: String, at explicitURL: URL?) async throws -> RemoteCatalog {
+        try await serialized {
+            try await self.catalogImpl(plugin: plugin, script: script, at: explicitURL)
+        }
+    }
+
+    private func catalogImpl(plugin: SourcePlugin, script: String, at explicitURL: URL?) async throws -> RemoteCatalog {
         let url: URL
 
         if let explicitURL {
@@ -110,10 +139,12 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
     }
 
     func catalog(plugin: SourcePlugin, at url: URL) async throws -> RemoteCatalog {
-        guard let script = SourcePluginStore.shared.script(for: plugin) else {
-            throw PluginError.invalidPlugin("installed script is missing")
+        try await serialized {
+            guard let script = SourcePluginStore.shared.script(for: plugin) else {
+                throw PluginError.invalidPlugin("installed script is missing")
+            }
+            return try await self.parseCatalog(plugin: plugin, script: script, pageURL: url)
         }
-        return try await parseCatalog(plugin: plugin, script: script, pageURL: url)
     }
 
     private func parseCatalog(plugin: SourcePlugin, script: String, pageURL: URL) async throws -> RemoteCatalog {
@@ -167,7 +198,9 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 pageString: link,
                 mustRead: item.mustRead ?? false,
                 mustReadTitle: item.mustReadTitle,
-                size: item.size
+                size: item.size,
+                opensCatalog: item.opensCatalog ?? false,
+                canRead: item.canRead ?? false
             )
         }
 
@@ -208,11 +241,76 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         let mustRead: Bool?
         let mustReadTitle: String?
         let metadata: [String: String]?
+        let opensCatalog: Bool?
+        let canRead: Bool?
     }
 
     private struct PluginCatalogRef: Decodable {
         let name: String?
         let url: String
+    }
+
+    /// Resolve a readable plugin comic into its ordered page-image URLs.
+    func pages(for plugin: SourcePlugin, comic: RemoteComic) async throws -> [URL] {
+        try await serialized {
+            guard let script = SourcePluginStore.shared.script(for: plugin) else {
+                throw PluginError.invalidPlugin("installed script is missing")
+            }
+            guard comic.canRead, let url = comic.pageURL else {
+                throw PluginError.invalidPlugin("comic is not readable by this plugin")
+            }
+            return try await self.pagesImpl(plugin: plugin, script: script, at: url)
+        }
+    }
+
+    func pages(plugin: SourcePlugin, script: String, at pageURL: URL) async throws -> [URL] {
+        try await serialized {
+            try await self.pagesImpl(plugin: plugin, script: script, at: pageURL)
+        }
+    }
+
+    private func pagesImpl(plugin: SourcePlugin, script: String, at pageURL: URL) async throws -> [URL] {
+        try await load(URLRequest(url: pageURL))
+        try await install(script)
+
+        let json = try await callAsyncJSON("""
+        JSON.stringify(await ComicViewerSource.parsePages())
+        """)
+
+        guard json.utf8.count <= 4_000_000 else {
+            throw PluginError.oversizedResult
+        }
+
+        guard let data = json.data(using: .utf8),
+              let document = try? JSONDecoder().decode(PluginPages.self, from: data)
+        else {
+            throw PluginError.invalidResult
+        }
+
+        var seen = Set<String>()
+        return document.pages.compactMap { raw -> URL? in
+            guard let url = resolveURL(raw, relativeTo: pageURL),
+                  seen.insert(url.absoluteString).inserted else { return nil }
+            return url
+        }
+    }
+
+    private struct PluginPages: Decodable {
+        let pages: [String]
+    }
+
+    private func serialized<T>(_ operation: @escaping @MainActor () async throws -> T) async throws -> T {
+        let previous = operationTail
+        let task = Task { @MainActor in
+            if let previous {
+                await previous.value
+            }
+            return try await operation()
+        }
+        operationTail = Task { @MainActor in
+            _ = try? await task.value
+        }
+        return try await task.value
     }
 
     private func install(_ script: String) async throws {
