@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var newURL = ""
     @State private var newPluginURL = ""
     @State private var note: String?
+    @State private var sessionPlugin: SourcePlugin?
 
     var body: some View {
         TabView {
@@ -30,7 +31,10 @@ struct SettingsView: View {
             SharingTab()
                 .tabItem { Label("Sharing", systemImage: "wifi") }
         }
-        .frame(width: 760, height: 540)
+.frame(width: 760, height: 540)
+        .sheet(item: $sessionPlugin) { plugin in
+            SourcePluginSessionSheet(plugin: plugin)
+        }
     }
 
     private var sourcesTab: some View {
@@ -127,6 +131,14 @@ struct SettingsView: View {
                                     }
 
                                     Spacer()
+
+                                    Button {
+                                        sessionPlugin = plugin
+                                    } label: {
+                                        Image(systemName: "safari")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Open source browser session")
 
                                     Button {
                                         Task {
