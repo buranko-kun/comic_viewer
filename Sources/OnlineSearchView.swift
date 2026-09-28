@@ -11,48 +11,43 @@ final class OnlineSearchState {
     var query = ""
 }
 
-/// A result from any indexed online engine. GetComics-style catalog entries keep their download
-/// metadata; ReadComicsOnline entries open directly into the streamed reader.
+/// A result from any indexed online catalog.
 enum UnifiedSearchItem: Identifiable {
     case catalog(RemoteComic)
-    case readComics(CatalogEntry)
 
     var id: String {
         switch self {
         case .catalog(let comic): return "catalog:" + comic.id
-        case .readComics(let entry): return "readcomics:" + entry.id
         }
     }
 
     var title: String {
         switch self {
         case .catalog(let comic): return comic.title
-        case .readComics(let entry): return entry.title
         }
     }
 
     var coverURL: URL? {
         switch self {
         case .catalog(let comic): return comic.coverURL
-        case .readComics(let entry): return entry.coverURL
         }
     }
 
     var sourceName: String {
         switch self {
         case .catalog(let comic): return comic.sourceName
-        case .readComics: return "ReadComicsOnline"
         }
     }
 }
 
-/// Unified search across every configured catalog source plus the mirrored ReadComicsOnline index.
+/// Unified search across every loaded online catalog.
+/// The search remains indexed and local after the configured sources have loaded.
+ across every configured catalog source plus the mirrored ReadComicsOnline index.
 /// This is intentionally an indexed search: it never has to hit a remote site for each keystroke.
 struct OnlineSearchView: View {
     @Environment(AppRouter.self) private var router
     @State private var searchState = OnlineSearchState.shared
     private let aggregator = CatalogAggregator.shared
-    private let readComics = ReadComicsCatalogStore.shared
 
     @State private var results: [UnifiedSearchItem] = []
     @State private var searching = false
@@ -145,7 +140,7 @@ struct OnlineSearchView: View {
                         .font(.system(size: 44)).foregroundStyle(.white.opacity(0.35))
                     Text("Search your online catalogs")
                         .font(.title3.bold()).foregroundStyle(.white)
-                    Text("Results are combined from every configured catalog and ReadComicsOnline.")
+                    Text("Results are combined from every configured catalog.")
                         .font(.callout).foregroundStyle(.white.opacity(0.55))
                         .multilineTextAlignment(.center)
                 }
@@ -187,9 +182,6 @@ struct OnlineSearchView: View {
         switch item {
         case .catalog(let comic):
             if let url = comic.pageURL { NSWorkspace.shared.open(url) }
-        case .readComics(let entry):
-            router.readComicsSeries = entry
-            router.route = .readcomics
         }
     }
 
@@ -219,10 +211,7 @@ struct OnlineSearchView: View {
             }
 
             let catalogItems = aggregator.comics
-            let readComicsItems = readComics.entries
-            let ranked = await Self.rank(catalogItems: catalogItems,
-                                         readComicsItems: readComicsItems,
-                                         query: q)
+            let ranked = await Self.rank(catalogItems: catalogItems, query: q)
             if Task.isCancelled { return }
             results = ranked
             searching = false
@@ -253,14 +242,6 @@ struct OnlineSearchView: View {
                 }
             }
 
-            for entry in readComicsItems {
-                let nt = SearchRank.normalize(entry.title)
-                if nt.contains(nq) {
-                    ranked.append((.readComics(entry),
-                                   SearchRank.score(normalizedTitle: nt, normalizedQuery: nq)))
-                }
-            }
-
             return ranked
                 .sorted { a, b in
                     if a.score != b.score { return a.score > b.score }
@@ -277,7 +258,7 @@ struct OnlineSearchView: View {
 }
 
 /// A result card that makes the available action visible on the cover:
-/// a book badge means it can be read directly in ReadComicsOnline; the download control marks
+/// a book badge means the source plugin can stream the comic; the download control marks
 /// catalog entries that have a direct downloadable file.
 private struct UnifiedSearchCard: View {
     let item: UnifiedSearchItem
@@ -293,7 +274,7 @@ private struct UnifiedSearchCard: View {
                         .font(.largeTitle).foregroundStyle(.white.opacity(0.4))
                 }
 
-                if case .readComics = item {
+                if case .catalog(let comic) = item, comic.canRead {
                     Image(systemName: "book.fill")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.white)
