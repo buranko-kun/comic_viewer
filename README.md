@@ -1,78 +1,35 @@
-# ComicViewer
+# ReadComicsOnline Comic Viewer plugin
 
-A native **macOS** comic reader with an **iOS** companion, built in SwiftUI.
+Standalone source plugin for ComicViewer.
 
-## Features
+## Install
 
-- **Reader** — paged reading, pinch/scroll zoom & pan, Horizontal/Vertical view
-  (rotate portrait pages), content-aware fit-to-width, user-created named chapters, resume.
-- **Library** — folders and archives (`.cbz`/`.cbr`/`.zip`/`.rar`/`.7z`), Continue Reading,
-  Collections, `ComicInfo.xml` metadata + on-demand fetch from ComicVine.
-- **Online sources** — installable JavaScript source plugins plus configurable catalog feeds.
-- **LAN sharing** — an opt-in Wi-Fi server (pairing code + Bonjour) exposing:
-  - a **JSON API** consumed by the native iOS client (`iOS/`), and
-  - an **OPDS catalog** any reader (KOReader, Panels, Chunky, …) can browse and download from.
-  Large archives stream page-by-page (no full extraction).
+Install `plugin.js` from its raw GitHub URL, or download it and use Preferences -> Sources -> Install local .js.
 
-## Build
+## Requirements
 
-The Xcode project is generated with [XcodeGen](https://github.com/yonasstephen/xcodegen) from
-`project.yml`.
+ComicViewer with the generic source-plugin system supporting:
+- `manifest`
+- `browseURL`
+- `parseCatalog()`
+- `parsePages()`
+- `opensCatalog`
+- `canRead`
 
-```bash
-xcodegen generate                                   # regenerate ComicViewer.xcodeproj after edits
-xcodebuild -scheme ComicViewer -configuration Debug build   # macOS app
-```
+## Behavior
 
-Targets: `ComicViewer` (macOS), `ComicViewerMobile` (iOS), `ComicViewerTests`.
+Provides:
+- full paginated catalog discovery
+- 14-day catalog cache in persistent plugin storage
+- series -> chapter navigation
+- direct streamed chapter reading
+- CDN page discovery, de-duplication, and natural sorting
+- a generic ComicViewer browser session for login/cookie/browser challenges
 
-### iOS device install
+The plugin contains all ReadComicsOnline-specific site logic. The ComicViewer core does not depend on it.
 
-```bash
-xcodebuild -project ComicViewer.xcodeproj -scheme ComicViewerMobile -configuration Debug \
-  -destination 'platform=iOS,id=<device-udid>' -allowProvisioningUpdates build
-xcrun devicectl device install app --device <device-udid> \
-  "<derived-data>/Build/Products/Debug-iphoneos/Comic Viewer.app"
-```
+## Source
 
-## Headless self-tests
+Website: https://readcomicsonline.ru
 
-The app runs headless test harnesses via CLI flags, e.g.:
-
-```bash
-ComicViewer --readcomicstest   # connector parser tests
-ComicViewer --chaptertest <folder>
-```
-
-
-### Reader performance diagnostics
-
-PR #10 adds measurement-only instrumentation under the unified logging subsystem
-`com.esteban.ComicViewer`, category `Performance`. It records first-visible-page latency,
-per-page load signposts, image decode time, cache hits/misses, archive preparation/extraction time,
-and remote page probing/loading time.
-
-To inspect the numeric logs from Terminal:
-
-```bash
-log show --style compact --info \
-  --predicate 'subsystem == "com.esteban.ComicViewer" AND category == "Performance"'
-```
-
-For interactive timing, open Instruments → Points of Interest and select the ComicViewer process.
-The `Reader Page Load` signposts can then be compared against cache/decode/archive/network events.
-
-
-## Source plugins
-
-The macOS Online browser supports installable JavaScript source plugins. A plugin can own its URL
-rules and DOM scraper, so new comic sites can be added without modifying or forking the app.
-
-See [SOURCE_PLUGINS.md](SOURCE_PLUGINS.md) and [examples/source-plugin-template.js](examples/source-plugin-template.js).
-
-
-## Torrent sharing
-
-The macOS app can create BitTorrent v1 torrents from comics, folders, or series, seed them directly
-from the original files, copy magnet links, and download `.torrent` files or magnets. See
-[TORRENTS.md](TORRENTS.md).
+The site may present a browser challenge. Open the plugin's browser session from Preferences -> Sources before browsing if needed.
