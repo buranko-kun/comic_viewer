@@ -121,9 +121,6 @@ final class AppRouter {
         route = .onlineSearch
     }
 
-    /// Open the online (OPDS) browser.
-    func showBrowse() { route = .browse }
-
     /// Open the online source browser.
     func showBrowse() { route = .browse }
 
