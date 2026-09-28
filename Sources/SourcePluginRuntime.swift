@@ -77,7 +77,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
             if (typeof source.parseCatalog !== "function") throw new Error("parseCatalog() is missing");
             return source.manifest;
         })())
-        """)
+        """, label: "manifest")
 
         guard let data = json.data(using: .utf8),
               let manifest = try? JSONDecoder().decode(SourcePluginManifest.self, from: data)
@@ -141,7 +141,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 const value = ComicViewerSource.browseURL;
                 return typeof value === "function" ? await value() : value;
             })())
-            """)
+            """, label: "browseURL")
 
             guard let route = decodeJSONString(raw), let resolved = URL(string: route) else {
                 throw PluginError.invalidResult
@@ -203,7 +203,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 );
             }
             return encoded;
-            """)
+            """, label: "catalog-navigate")
         } else {
             json = try await callAsyncJSON("""
             const result = await ComicViewerSource.parseCatalog({ url: targetURL });
@@ -217,7 +217,7 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 );
             }
             return encoded;
-            """, arguments: ["targetURL": pageURL.absoluteString])
+            """, arguments: ["targetURL": pageURL.absoluteString], label: "catalog-session")
         }
 
         guard json.utf8.count <= 8_000_000 else {
@@ -424,11 +424,11 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         if preservesSession {
             json = try await callAsyncJSON("""
             return JSON.stringify(await ComicViewerSource.parsePages({ url: targetURL }))
-            """, arguments: ["targetURL": pageURL.absoluteString])
+            """, arguments: ["targetURL": pageURL.absoluteString], label: "pages-session")
         } else {
             json = try await callAsyncJSON("""
             return JSON.stringify(await ComicViewerSource.parsePages())
-            """)
+            """, label: "pages-navigate")
         }
 
         guard json.utf8.count <= 4_000_000 else {
@@ -543,8 +543,8 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
         }
     }
 
-    private func callAsyncJSON(_ script: String, arguments: [String: Any] = [:]) async throws -> String {
-        print("SourcePluginRuntime: CALL-ASYNC-JSON BUILD MARKER 2026-09-28")
+    private func callAsyncJSON(_ script: String, arguments: [String: Any] = [:], label: String = "unknown") async throws -> String {
+        print("SourcePluginRuntime: CALL-ASYNC-JSON BUILD MARKER 2026-09-28 label=" + label)
         let value: Any?
         do {
             value = try await webView.callAsyncJavaScript(
@@ -562,7 +562,8 @@ final class SourcePluginRuntime: NSObject, WKNavigationDelegate {
                 + String(describing: value))
             throw PluginError.invalidResult
         }
-        print("SourcePluginRuntime: callAsyncJavaScript returned JSON bytes="
+        print("SourcePluginRuntime: callAsyncJavaScript label=" + label
+            + " returned JSON bytes="
             + String(text.utf8.count)
             + ", prefix=" + String(text.prefix(300)))
         return text
