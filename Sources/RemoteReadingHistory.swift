@@ -17,7 +17,7 @@ final class RemoteReadingHistory {
     private(set) var issues: [ReadIssue] = []
 
     private var fileURL: URL {
-        FileManager.default.urls(in: .applicationSupportDirectory, in: .userDomainMask).first!
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("ComicViewer/remote-reading-history.json")
     }
 
