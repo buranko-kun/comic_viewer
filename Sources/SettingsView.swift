@@ -27,8 +27,6 @@ struct SettingsView: View {
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
             TorrentSettingsTab()
                 .tabItem { Label("Torrents", systemImage: "arrow.triangle.2.circlepath") }
-            ConnectTab()
-                .tabItem { Label("Connect", systemImage: "network") }
             SharingTab()
                 .tabItem { Label("Sharing", systemImage: "wifi") }
         }
@@ -679,29 +677,6 @@ private struct DownloadsSettingsTab: View {
             Spacer()
         }
         .padding(20)
-    }
-}
-
-/// Preferences → Connect: proof-of-concept Cloudflare gate for talking to a site's CMS.
-private struct ConnectTab: View {
-    @State private var showGate = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Connect to a site").font(.headline)
-            Text("Open a site in a browser to complete Cloudflare, then reuse the session in Comic Viewer.")
-                .font(.caption).foregroundStyle(.secondary)
-            Button {
-                showGate = true
-            } label: {
-                Label("Open Cloudflare gate…", systemImage: "shield.lefthalf.filled")
-            }
-            Spacer()
-        }
-        .padding(20)
-        .sheet(isPresented: $showGate) {
-            CloudflareGateSheet(onClose: { showGate = false })
-        }
     }
 }
 
