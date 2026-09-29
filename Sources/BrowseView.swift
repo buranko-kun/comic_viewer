@@ -19,6 +19,9 @@ struct BrowseView: View {
     @State private var browseState = BrowseState.shared
     @State private var loadingChild = false
     @State private var childError: String?
+    @State private var childTask: Task<Void, Never>?
+    @State private var childGeneration = UUID()
+    @State private var retryChild: (() -> Void)?
     /// Pending debounce; cancelled and restarted on each keystroke.
     @State private var searchDebounce: Task<Void, Never>?
     /// True while a debounce is pending or a background filter is running (drives the "Searching…"
@@ -59,7 +62,7 @@ struct BrowseView: View {
     /// A key that changes whenever the displayed set changes (level, search, filter, sort) —
     /// used to memoize sorting and to reset the scroll window.
     private var displayToken: String {
-        "\(levelKey)|\(browseState.activeQuery)|\(browseState.mustReadOnly)|\(browseState.sortMode.rawValue)"
+        "\(levelKey)|\(aggregator.revision)|\(browseState.revision)|\(browseState.activeQuery)|\(browseState.mustReadOnly)|\(browseState.sortMode.rawValue)"
     }
 
     /// Identifies the current browse level (home or a drilled-in folder).
@@ -68,7 +71,7 @@ struct BrowseView: View {
     }
 
     /// Re-run the background filter whenever the level, must-read toggle, or debounced query change.
-    private var searchFilterToken: String { "\(levelKey)|\(browseState.mustReadOnly)|\(browseState.activeQuery)" }
+    private var searchFilterToken: String { "\(levelKey)|\(aggregator.revision)|\(browseState.revision)|\(browseState.mustReadOnly)|\(browseState.activeQuery)" }
 
     /// The base set for the grid, then sorted + letter-indexed (memoized). The expensive text
     /// filter runs off the main thread (see `runSearchFilter`) and lands in `searchResults`; the
@@ -106,7 +109,8 @@ struct BrowseView: View {
             keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
             if !aggregator.loadedOnce { Task { await aggregator.loadRoots() } }
         }
-        .onDisappear { keyMonitor.stop(); searchDebounce?.cancel() }
+        .onDisappear { keyMonitor.stop(); searchDebounce?.cancel(); cancelChild() }
+        .onChange(of: browseState.invalidationRevision) { _, _ in cancelChild(); childError = nil }
         // Debounce typing: the field updates instantly, but filtering waits until you pause so a
         // large catalog isn't rescanned per keystroke. Clearing the field applies immediately.
         .onChange(of: browseState.searchText) { _, newValue in
@@ -190,10 +194,14 @@ struct BrowseView: View {
     @ViewBuilder private var content: some View {
         if sources.sources.isEmpty && plugins.enabledPlugins.isEmpty {
             emptyNoSources
-        } else if loadingChild || (browseState.stack.isEmpty && aggregator.loading) {
+        } else if loadingChild {
+            centered {
+                VStack { ProgressView().controlSize(.large); Button("Cancel") { cancelChild() } }
+            }
+        } else if browseState.stack.isEmpty && aggregator.loading && levelComics.isEmpty && levelFolders.isEmpty {
             centered { ProgressView().controlSize(.large) }
         } else if let childError {
-            errorView(childError) { self.childError = nil; if let last = browseState.stack.last { reopen(last) } }
+            errorView(childError) { self.childError = nil; retryChild?() }
         } else {
             grid
         }
@@ -241,7 +249,7 @@ struct BrowseView: View {
                 if !shuffling, d.comics.indices.contains(idx) { browseState.anchorID = d.comics[idx].id }
                 let base = max(0, idx - 8), end = min(items.count, idx + 60)
                 guard base < end else { return }
-                let urls = Array(items[base..<end].compactMap(\.coverURL))
+                let urls = Array(items[base..<end].compactMap { $0.coverRequest.map { PluginResourceRegistry.shared.boundURL(for: $0) } })
                 Task { await RemoteImageCache.shared.setPrefetchTarget(urls, maxPixel: 320) }
             },
             onReset: { browseState.anchorID = nil },
@@ -261,10 +269,8 @@ struct BrowseView: View {
                 }
             },
             leading: {
-                if !shuffling {
-                    ForEach(levelFolders) { folder in
-                        FolderCard(name: folder.name) { open(folder) }
-                    }
+                ForEach(levelFolders) { folder in
+                    FolderCard(name: folder.name) { open(folder) }
                 }
             },
             cell: { comic in
@@ -368,7 +374,7 @@ struct BrowseView: View {
                 TorrentQueueButton()
                 Button { router.showCollections() } label: { Image(systemName: "rectangle.stack") }
                     .help("Collections").pointingHandCursor()
-                Button { Task { await aggregator.loadRoots() } } label: {
+                Button { if let current = browseState.stack.last { reopen(current) } else { Task { await aggregator.loadRoots(refresh: true) } } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh catalog").pointingHandCursor()
@@ -382,46 +388,66 @@ struct BrowseView: View {
 
     // MARK: Actions
 
-    private func open(_ folder: RemoteCatalog.ChildCatalog) {
-        loadingChild = true; childError = nil
-        browseState.clearSearch(); browseState.resetScroll()
-        Task {
+    private func cancelChild() {
+        childTask?.cancel()
+        childTask = nil
+        childGeneration = UUID()
+        loadingChild = false
+    }
+
+    private func runChild(retry: @escaping () -> Void,
+                          operation: @escaping @MainActor () async throws -> Void) {
+        cancelChild()
+        let generation = childGeneration
+        retryChild = retry
+        childError = nil
+        loadingChild = true
+        childTask = Task { @MainActor in
             do {
-                if let sourceID = folder.sourceID,
-                   let plugin = plugins.plugin(id: sourceID) {
-                    browseState.stack.append(
-                        try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: folder.url)
-                    )
-                } else {
-                    browseState.stack.append(try await CatalogClient.catalog(at: folder.url))
-                }
+                try await operation()
             } catch {
+                guard !Task.isCancelled, childGeneration == generation else { return }
                 childError = error.localizedDescription
             }
+            guard childGeneration == generation else { return }
             loadingChild = false
+            childTask = nil
+        }
+    }
+
+    private func open(_ folder: RemoteCatalog.ChildCatalog) {
+        runChild(retry: { open(folder) }) {
+            let catalog: RemoteCatalog
+            if let sourceID = folder.sourceID, let plugin = plugins.plugin(id: sourceID) {
+                catalog = try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: folder.url)
+            } else {
+                catalog = try await CatalogClient.catalog(at: folder.url)
+            }
+            try Task.checkCancellation()
+            browseState.clearSearch(); browseState.resetScroll()
+            browseState.stack.append(catalog)
+            browseState.revision += 1
         }
     }
 
     private func reopen(_ cat: RemoteCatalog) {
-        loadingChild = true; childError = nil
-        Task {
-            do {
-                if let sourceID = cat.sourceID,
-                   let plugin = plugins.plugin(id: sourceID) {
-                    browseState.stack[browseState.stack.count - 1] =
-                        try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: cat.sourceURL)
-                } else {
-                    browseState.stack[browseState.stack.count - 1] =
-                        try await CatalogClient.catalog(at: cat.sourceURL)
-                }
-            } catch {
-                childError = error.localizedDescription
+        runChild(retry: { reopen(cat) }) {
+            let catalog: RemoteCatalog
+            if let sourceID = cat.sourceID, let plugin = plugins.plugin(id: sourceID) {
+                catalog = try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: cat.sourceURL, refresh: true)
+            } else {
+                catalog = try await CatalogClient.catalog(at: cat.sourceURL)
             }
-            loadingChild = false
+            try Task.checkCancellation()
+            guard let last = browseState.stack.indices.last,
+                  browseState.stack[last].sourceURL == cat.sourceURL else { return }
+            browseState.stack[last] = catalog
+            browseState.revision += 1
         }
     }
 
     private func back() {
+        cancelChild(); childError = nil
         if selecting { exitSelection(); return }
         // Leaving a drilled folder clears that level's search + scroll; leaving Online for the
         // Library keeps everything so returning restores the exact spot.
@@ -462,57 +488,12 @@ struct BrowseView: View {
     }
 
     private func openPluginCatalog(_ plugin: SourcePlugin, at url: URL) {
-        loadingChild = true
-        childError = nil
-        browseState.clearSearch()
-        browseState.resetScroll()
-
-        Task {
-            do {
-                browseState.stack.append(
-                    try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: url)
-                )
-            } catch {
-                childError = error.localizedDescription
-            }
-            loadingChild = false
-        }
+        open(RemoteCatalog.ChildCatalog(name: plugin.name, url: url, sourceID: plugin.id))
     }
 
     private func openPluginComic(_ plugin: SourcePlugin, comic: RemoteComic) {
-        guard let url = comic.pageURL else { return }
-
-        loadingChild = true
-        childError = nil
-
-        Task {
-            do {
-                let pages = try await SourcePluginRuntime.shared.pages(for: plugin, comic: comic)
-                guard !pages.isEmpty else {
-                    throw SourcePluginRuntime.PluginError.invalidResult
-                }
-
-                let readingComic = Comic(
-                    url: url,
-                    series: comic.series ?? comic.title,
-                    isArchive: false,
-                    coverURL: pages.first ?? comic.coverURL,
-                    pageCount: pages.count,
-                    progress: nil,
-                    chapterCount: 0,
-                    metaTitle: comic.title,
-                    tooltip: comic.description,
-                    remotePages: pages
-                )
-
-                RemoteReadingHistory.shared.record(readingComic)
-
-                loadingChild = false
-                router.openComic(readingComic, origin: .browse)
-            } catch {
-                childError = error.localizedDescription
-                loadingChild = false
-            }
+        runChild(retry: { openPluginComic(plugin, comic: comic) }) {
+            try await PluginComicOpener.open(comic, router: router)
         }
     }
 
@@ -545,6 +526,18 @@ final class BrowseState {
 
     /// Folders drilled into (each a fetched sub-catalog). Empty = the aggregated home.
     var stack: [RemoteCatalog] = []
+    var revision = 0
+    var invalidationRevision = 0
+
+    func invalidatePlugin(_ id: String) {
+        if let first = stack.firstIndex(where: { $0.sourceID == id }) {
+            stack.removeSubrange(first...)
+            resetScroll()
+        }
+        searchResults = nil; resultsToken = ""
+        revision += 1
+        invalidationRevision += 1
+    }
 
     /// What the user is typing — bound to the field so text appears instantly.
     var searchText = ""
@@ -652,7 +645,7 @@ private struct ComicCard: View {
             .padding(6).shadow(radius: 2)
     }
 
-    private var cover: some View { CoverImage(url: comic.coverURL, maxPixel: 320) { Image(systemName: "book.closed").font(.largeTitle).foregroundStyle(.white.opacity(0.4)) } }
+    private var cover: some View { CoverImage(url: comic.coverURL, maxPixel: 320, resource: comic.coverRequest) { Image(systemName: "book.closed").font(.largeTitle).foregroundStyle(.white.opacity(0.4)) } }
 
     private var infoButton: some View {
         Button { showDetail = true } label: {

@@ -11,8 +11,12 @@ It exists in the ComicViewer repository only so the complete working source is e
 
 ## What the plugin provides
 
-- Full paginated catalog discovery from the site's comic list.
-- A 14-day catalog cache in the plugin WebView's persistent local storage.
+- Fast page-by-page catalog browsing with a Next page folder.
+- Optional full catalog discovery: enable **Load entire catalog** in the source settings.
+  This restores full-collection global search but can take several minutes on the first load.
+  In default paged mode, global search only includes the root page's entries.
+- A 14-day per-page and full-catalog cache in the plugin WebView's persistent local storage.
+- Lazy-loaded cover extraction. Issue cards use the series cover instead of guessing a chapter filename.
 - Series to chapter navigation.
 - Chapter cards marked as readable with `canRead: true`.
 - Exact chapter image discovery through `parsePages()`.
@@ -46,3 +50,26 @@ core app no longer contains any source-specific implementation, copy this direct
 or a separate plugin repository and remove it from the ComicViewer repository.
 
 The core app must not import, reference, or otherwise depend on files in this directory.
+
+## Updating and verification
+
+Install the local `plugin.js` again through Preferences → Sources to replace the installed copy
+with version 1.3.0. A repository edit does not update an already-installed plugin. The new cache
+namespace discards old parsed results that may contain missing or incorrect covers.
+
+Run the offline parser and request-count regression checks:
+
+```sh
+node --test plugins/readcomicsonline/plugin.test.cjs
+```
+
+The Node suite provides fast logic regressions. The WebKit suite exercises actual saved HTML:
+
+```sh
+tools/test-source-plugin plugins/readcomicsonline/plugin.js plugins/readcomicsonline/fixtures/suite.json
+```
+
+The HTML is synthetic and sanitized, not a claim about the current live site. Live markup and image
+delivery must also be checked in the app's authenticated session. Version 1.3.0 supplies image
+referrer/cookie context, cancellation-aware fetches, refresh/cache hooks, and request diagnostics.
+Full-catalog operations have a 900-second bound; individual requests time out after 25 seconds.

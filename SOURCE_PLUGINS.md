@@ -1,98 +1,130 @@
 # Comic Viewer source plugins
 
-Source plugins let people add online scrapers without changing or forking Comic Viewer. A plugin
-is a small JavaScript file installed from a URL (including raw GitHub) or a local .js file.
+A source plugin is one JavaScript file assigning `globalThis.ComicViewerSource`. Install it from
+Preferences → Sources using a local `.js` file or an HTTP(S) URL. GitHub blob URLs are normalized
+to raw URLs. No app rebuild, package manager, or JavaScript build step is required.
 
-## How it works
+Plugins run in WebKit's page context with browser JavaScript and DOM APIs. They have no native
+filesystem API. Install only scripts you trust. The optional declarations in
+`examples/source-plugin.d.ts` describe the supported API. Start with
+`examples/source-plugin-template.js` (page DOM) or `examples/source-plugin-session-template.js`
+(authenticated, fetch-based scraping).
 
-The plugin runs inside a dedicated WKWebView page context. It can use browser JavaScript, DOM APIs,
-and web requests available to that page. It does not receive Swift objects, filesystem access, or
-native application APIs.
+## Development loop
 
-Because plugins are third-party code, only install plugins you trust.
+1. Install your local file once, then choose **Develop** beside the source in Preferences.
+2. Edit the original file and select **Reload from file**. The panel shows the installed SHA-256;
+   a version bump is not required. Files are copied on installation, not watched automatically.
+3. Run Validate manifest, Browse root/URL, Resolve pages, or Probe image. Inspect the normalized
+   result, optional raw JSON, console/diagnostic events, field-path warnings, and timings.
+4. Use **Open source session** for login/challenges. Its browser shares persistent website data
+   with the scraper but cannot navigate its worker.
+5. Use **Clear plugin cache** when the plugin implements `clearCache()`. It must remove only its
+   own cached results, not authentication state. Source refresh also passes `context.refresh`.
 
-## Plugin shape
+Invalid scripts, identity-changing updates, and failed registry writes preserve the last installed
+version. Reload invalidates only that plugin's worker/results. Settings use Apply/Cancel and refresh
+only the changed source. Successful sources remain visible while others load. Development previews
+use the same resource transport as Browse and Reader.
 
-A plugin assigns a source object to globalThis.ComicViewerSource.
+Recent diagnostics stay in memory (50 runs). Raw/normalized captures are enabled only while the
+panel is open and limited to 64 KiB each. Copy displayed output explicitly if it is needed for local
+investigation. Diagnostic report export excludes payloads and plugin-authored console messages,
+and redacts URL query values. There is no telemetry upload.
 
-    globalThis.ComicViewerSource = {
-        manifest: {
-            id: "example.my-source",
-            name: "My Comic Source",
-            version: "1.0.0",
-            homepage: "https://example.com",
-            description: "Example source"
-        },
+## Contract
 
-        browseURL: "https://example.com/comics",
+Required members:
 
-        parseCatalog() {
-            return {
-                name: "My Comic Source",
-                comics: [],
-                catalogs: []
-            };
-        }
-    };
+```js
+globalThis.ComicViewerSource = {
+    manifest: { id: "example.source", name: "Example", version: "1.0", apiVersion: 1 },
+    browseURL: "https://example.com/comics",
+    parseCatalog(context) { return { name: "Example", comics: [], catalogs: [] }; }
+};
+```
 
-manifest, browseURL, and parseCatalog() are required. parseCatalog() can be async.
+`manifest.apiVersion` defaults to 1 for old plugins; unsupported versions fail validation.
+`browseURL` may also be an async function. Optional manifest fields include homepage, description,
+tags, capabilities, settings, and `operationTimeoutSeconds` (1–900, default 60). Navigation has an
+independent 30-second timeout. A timed-out or cancelled worker is discarded before its next run.
+There are at most two active plugin operations; each source's operations serialize.
 
-browseURL can be a URL string or a function that returns one.
+Both parsing hooks receive an optional context (old no-argument functions remain supported):
 
-searchURL(query) is optional in the v1 schema. The current Online screen already performs local search
-across loaded plugin results; a network search hook is reserved for a future source-aware search UI.
+- `url`: requested catalog or issue URL.
+- `settings`: effective source settings, also available as `ComicViewerSource.settings`.
+- `refresh`: bypass parsed-data caches when true.
+- `operationID`: diagnostic identifier.
+- `signal`: cancellation signal for fetch/sleep helpers; host cancellation also terminates the worker.
+- `diagnostic(event)`: optional structured cache/retry/request information; events are bounded.
 
-A readable comic can additionally implement `parsePages()`. It runs after the comic's `link` has been
-loaded in the plugin WebView and returns:
+Without `browser-session`, the app loads the target page before parsing. With that capability, the
+app establishes `manifest.homepage` origin and the plugin fetches `context.url` itself. A fetched
+DOMParser document does not inherit the response URL: explicitly resolve relative attributes against
+`context.url`. Do not use the unrelated session page's `location` for fetched documents.
 
-    { pages: ["https://example.com/001.jpg", "https://example.com/002.jpg"] }
+`parseCatalog` returns optional `name`, `comics`, and `catalogs` arrays. Each comic may contain id,
+title, description, cover, series, format, mirrors, hasMirrors, link, size, mustRead, mustReadTitle,
+metadata, opensCatalog, and canRead. A child catalog has `{name, url}`. Relative URLs resolve against
+the requested page. HTTP(S) is required; invalid optional fields generate warnings. Existing primitive
+coercions remain supported with warnings. Duplicate IDs are disambiguated.
 
-Set `canRead: true` on those catalog entries. Comic Viewer resolves the returned URLs and streams
-them directly into the reader, so the plugin does not need filesystem access or native Swift code.
+Set `opensCatalog: true` to browse a series; set `canRead: true` to resolve an issue through
+`parsePages(context)`, returning `{pages: [...]}` in reading order. Declaring `read` requires a
+`parsePages` hook. Duplicate page requests are removed. Browse and Search use the same opening
+behavior. Local search covers loaded root entries; `searchURL` remains reserved and is not invoked.
 
-## Catalog result
+## Images and authenticated resources
 
-Each comic may provide:
+Cover and page entries accept either a string URL (legacy, no browser cookies) or:
 
-- id
-- title
-- description
-- cover
-- series
-- format
-- mirrors
-- hasMirrors
-- link
-- size
-- mustRead
-- mustReadTitle
-- metadata
-- opensCatalog — when true, tapping the card opens the plugin's catalog at `link`
-- canRead — when true, tapping the card asks the plugin for its page images
+```js
+{ url: "https://cdn.example.com/page.jpg", referrer: context.url, useBrowserCookies: true }
+```
 
-Child folders use:
+Relative resource/referrer URLs are supported. Plugin identity is attached by the host, not supplied
+by scripts. Browser cookies are selected by destination domain/path, expiry, and secure flag, and
+reselected for redirects. Cross-origin referrers are reduced to their origin. HTTPS-to-HTTP redirects
+are rejected. Cookie values are not written into history or exported reports.
 
-    catalogs: [
-        { name: "Spider-Man", url: "https://example.com/comics/spider-man" }
-    ]
+The resource context survives reader/history restoration; caches separate image size, context,
+source revision, and cookie-session epoch. Cookie-backed covers are memory-only. Native HTTP
+transport can still be rejected by browser-bound challenges: use Probe image to distinguish an HTTP
+rejection from bad extraction or invalid image bytes. Opening the source session does not guarantee
+that a website will permit native image downloads.
 
-Relative cover, link, mirror, and child-catalog URLs are resolved against the page being parsed.
+## Settings
 
-## Browser sessions
+A setting declares id, title, type, defaultValue, optional description, and optional options.
+Types: string/text/password, number, bool/boolean/toggle, and select/picker. IDs must be unique;
+default values must match the type and select options. Settings persist separately from plugin code.
 
-Installed plugins with a homepage can be opened in Comic Viewer's embedded source browser from Preferences -> Sources. The browser uses the same persistent WebView session as the plugin runtime, so cookies, local storage, login state, and browser challenges can be completed once and reused by the plugin.
+## Automated tests
 
-## Installing
+Run the production WebKit runtime against saved HTML without live site access:
 
-Open Preferences -> Sources. Under Source plugins, paste a plugin URL or choose a local .js file.
+```sh
+tools/test-source-plugin plugins/readcomicsonline/plugin.js plugins/readcomicsonline/fixtures/suite.json
+```
 
-Installed plugins can be enabled or disabled, updated, or removed without rebuilding the app.
+The wrapper builds into `build/plugin-tests`; set `COMIC_VIEWER_TEST_BINARY` to reuse an existing
+Debug app executable. Exit status is nonzero for errors, failed expectations, or timeouts.
 
-A GitHub URL in the form github.com/owner/repo/blob/ref/path.js is automatically converted to the
-raw file URL.
+A suite has a `cases` array. A case accepts:
 
-## Updating
+- name, url, operation (`catalog` or `pages`), settings, repeat (default 1).
+- html or htmlFile: initial DOM; files are relative to the suite.
+- responses: URL → `{status, body, headers}` or `{status, file, headers}` for fetch fixtures.
+- expected: normalized-output subset; arrays require exact length and order.
+- expectedError: required error substring instead of successful output.
+- requestCount: total fetch calls, including repeated warm runs.
 
-The app uses manifest.id as the stable plugin identity. Installing or updating another plugin with
-the same id replaces the installed script while preserving the existing enabled/disabled setting.
+Each case has fresh nonpersistent storage. Repeats share that case's cache. Actual DOM selectors run
+unchanged; fetch uses declared fixture responses, external subresources are blocked, and undeclared
+requests fail. Cookies, redirects and native image decoding are tested separately against a loopback
+HTTP server in XCTest. Fixture success does not establish live-site compatibility.
 
+The macOS CI workflow runs XCTest, Node regressions, and the RCO WebKit HTML suite. Live-site smoke
+checks remain manual: login if necessary, root → next page → series → issue, confirm visible covers
+and reader pages, and compare cold/warm diagnostic timings and request counts.

@@ -48,6 +48,9 @@ struct SourcePlugin: Identifiable, Hashable, Codable {
     let fileName: String
     let installedAt: Date
     var enabled: Bool
+    var apiVersion: Int? = nil
+    var scriptHash: String? = nil
+    var operationTimeoutSeconds: Double? = nil
 }
 
 struct SourcePluginManifest: Codable, Hashable {
@@ -59,4 +62,6 @@ struct SourcePluginManifest: Codable, Hashable {
     let tags: [String]?
     let capabilities: [String]?
     let settings: [SourcePluginSetting]?
+    var apiVersion: Int? = nil
+    var operationTimeoutSeconds: Double? = nil
 }

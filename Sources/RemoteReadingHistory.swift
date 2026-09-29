@@ -12,6 +12,8 @@ final class RemoteReadingHistory {
         let title: String
         let cover: String?
         let pages: [String]
+        var coverResource: PluginResourceRequest? = nil
+        var pageResources: [PluginResourceRequest]? = nil
     }
 
     private(set) var issues: [ReadIssue] = []
@@ -48,7 +50,9 @@ final class RemoteReadingHistory {
             series: comic.series,
             title: comic.title,
             cover: comic.coverURL?.absoluteString,
-            pages: (comic.remotePages ?? []).map(\.absoluteString)
+            pages: (comic.remotePages ?? []).map(\.absoluteString),
+            coverResource: comic.coverURL.map { PluginResourceRegistry.shared.request(for: $0) },
+            pageResources: comic.remotePages?.map { PluginResourceRegistry.shared.request(for: $0) }
         )
         issues.removeAll { $0.key == issue.key }
         issues.insert(issue, at: 0)
@@ -70,8 +74,10 @@ final class RemoteReadingHistory {
             let page = index + 1
             guard page >= 3, page < count else { return nil }
 
-            let pages = issue.pages.compactMap(URL.init(string:))
-            let cover = issue.cover.flatMap(URL.init(string:)) ?? pages.first
+            for request in issue.pageResources ?? [] { PluginResourceRegistry.shared.register(request) }
+            if let request = issue.coverResource { PluginResourceRegistry.shared.register(request) }
+            let pages = issue.pageResources?.map { PluginResourceRegistry.shared.boundURL(for: $0) } ?? issue.pages.compactMap(URL.init(string:))
+            let cover = issue.coverResource.map { PluginResourceRegistry.shared.boundURL(for: $0) } ?? issue.cover.flatMap(URL.init(string:)) ?? pages.first
 
             return Comic(
                 url: url,

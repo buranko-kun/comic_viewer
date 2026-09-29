@@ -9,9 +9,9 @@ import Foundation
 actor RemoteImageCache {
     static let shared = RemoteImageCache()
 
-    private var store: [URL: CGImage] = [:]
-    private var order: [URL] = []                        // oldest → newest
-    private var inFlight: [URL: Task<(CGImage?, Bool), Never>] = [:]
+    private var store: [String: CGImage] = [:]
+    private var order: [String] = []                        // oldest → newest
+    private var inFlight: [String: Task<(CGImage?, Bool), Never>] = [:]
     // Bounds resident memory (~0.4 MB per 320px cover → ~130 MB). Large enough to hold the
     // look-ahead prefetch buffer plus a couple of screens back, so neither forward scrolling nor
     // small scroll-backs show an empty thumbnail. Off-screen cells free their own copies.
@@ -30,14 +30,22 @@ actor RemoteImageCache {
     /// caller with a fallback (e.g. a guessed cover URL) can skip pointless retries and resolve the
     /// real URL immediately, instead of treating a "not found" like a transient hiccup.
     func result(for url: URL, maxPixel: Int) async -> (image: CGImage?, notFound: Bool) {
-        if let hit = store[url] { touch(url); return (hit, false) }
-        if let running = inFlight[url] { return await running.value }
+        await result(for: PluginResourceRegistry.shared.request(for: url), maxPixel: maxPixel)
+    }
 
-        let task = Task<(CGImage?, Bool), Never> { await Self.loadOrFetch(url, maxPixel: maxPixel) }
-        inFlight[url] = task
+    func image(for request: PluginResourceRequest, maxPixel: Int) async -> CGImage? {
+        await result(for: request, maxPixel: maxPixel).image
+    }
+
+    func result(for request: PluginResourceRequest, maxPixel: Int) async -> (image: CGImage?, notFound: Bool) {
+        let key = request.cacheKey(maxPixel: maxPixel)
+        if let hit = store[key] { touch(key); return (hit, false) }
+        if let running = inFlight[key] { return await running.value }
+        let task = Task<(CGImage?, Bool), Never> { await Self.loadOrFetch(request, maxPixel: maxPixel) }
+        inFlight[key] = task
         let res = await task.value
-        inFlight[url] = nil
-        if let cg = res.0 { insert(url, cg) }
+        inFlight[key] = nil
+        if let cg = res.0 { insert(key, cg) }
         return (res.0, res.1)
     }
 
@@ -51,7 +59,7 @@ actor RemoteImageCache {
     /// task — decoupled from the caller, so scrolling can update the target without cancelling
     /// in-flight downloads. The result: a few rows stay decoded ahead of where you're looking.
     func setPrefetchTarget(_ urls: [URL], maxPixel: Int) {
-        prefetchQueue = urls.filter { store[$0] == nil && inFlight[$0] == nil }
+        prefetchQueue = urls
         guard !pumping, !prefetchQueue.isEmpty else { return }
         pumping = true
         Task { await pump(maxPixel: maxPixel) }
@@ -62,7 +70,7 @@ actor RemoteImageCache {
             var batch: [URL] = []
             while batch.count < 6, !prefetchQueue.isEmpty {
                 let u = prefetchQueue.removeFirst()
-                if store[u] == nil { batch.append(u) }
+                batch.append(u)
             }
             if batch.isEmpty { break }
             await withTaskGroup(of: Void.self) { group in
@@ -74,13 +82,13 @@ actor RemoteImageCache {
 
     // MARK: - Memory LRU
 
-    private func insert(_ url: URL, _ cg: CGImage) {
+    private func insert(_ url: String, _ cg: CGImage) {
         store[url] = cg
         touch(url)
         while order.count > capacity { store[order.removeFirst()] = nil }
     }
 
-    private func touch(_ url: URL) {
+    private func touch(_ url: String) {
         order.removeAll { $0 == url }
         order.append(url)
     }
@@ -91,19 +99,21 @@ actor RemoteImageCache {
     /// otherwise the image is fetched, downsampled, persisted, and returned.
     /// Returns `(image, notFound)`: `notFound` is true only for a definitive 404/410, so callers
     /// can distinguish "this URL will never work" from a transient failure worth retrying.
-    private static func loadOrFetch(_ url: URL, maxPixel: Int) async -> (CGImage?, Bool) {
-        let file = dir.appendingPathComponent(CentralStore.sha256(url.absoluteString) + "-\(maxPixel).jpg")
-        if let cg = downsample(fileURL: file, maxPixel: maxPixel) { return (cg, false) }   // disk hit
-
-        guard let (data, response) = try? await URLSession.shared.data(from: url) else { return (nil, false) }
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            let notFound = http.statusCode == 404 || http.statusCode == 410
-            return (nil, notFound)
-        }
-        guard let cg = downsample(data: data, maxPixel: maxPixel) else { return (nil, false) }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        writeJPEG(cg, to: file)
-        return (cg, false)
+    private static func loadOrFetch(_ request: PluginResourceRequest, maxPixel: Int) async -> (CGImage?, Bool) {
+        let file = dir.appendingPathComponent(request.cacheKey(maxPixel: maxPixel) + ".jpg")
+        if let cg = downsample(fileURL: file, maxPixel: maxPixel) { return (cg, false) }
+        do {
+            let data = try await PluginResourceTransport.data(for: request)
+            guard let cg = downsample(data: data, maxPixel: maxPixel) else { return (nil, false) }
+            // Browser-session resources stay in memory: logout must not leave credential-bound disk images.
+            if !request.useBrowserCookies {
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                writeJPEG(cg, to: file)
+            }
+            return (cg, false)
+        } catch PluginResourceError.http(let status) {
+            return (nil, status == 404 || status == 410)
+        } catch { return (nil, false) }
     }
 
     /// Downsample from in-memory image data (network path).

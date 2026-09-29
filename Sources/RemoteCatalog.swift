@@ -26,8 +26,11 @@ struct RemoteComic: Identifiable, Hashable {
     var opensCatalog: Bool = false
     /// Plugin sources can resolve the card into page image URLs and open it directly in the reader.
     var canRead: Bool = false
+    var coverResource: PluginResourceRequest? = nil
 
-    var coverURL: URL? { coverString.flatMap { URL(string: $0) } }
+    var coverRequest: PluginResourceRequest? { coverResource ?? coverURL.map { PluginResourceRegistry.shared.request(for: $0) } }
+
+    var coverURL: URL? { coverResource?.url ?? coverString.flatMap { URL(string: $0) } }
     var pageURL: URL? { pageString.flatMap { URL(string: $0) } }
 
     var resolvedFormat: String? {

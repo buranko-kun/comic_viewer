@@ -14,60 +14,89 @@ final class CatalogAggregator {
     private(set) var errors: [String] = []
     private(set) var loadedOnce = false
 
-    /// Fetch and merge every source root while preserving configured-source order.
-    func loadRoots() async {
-        loading = true
+    private(set) var revision = 0
+    private var results: [String: RemoteCatalog] = [:]
+    private var failures: [String: String] = [:]
+    private var tasks: [String: Task<Void, Never>] = [:]
+    private var generations: [String: UUID] = [:]
+
+    /// Refresh sources independently, keeping successful results visible during refresh.
+    func loadRoots(refresh: Bool = false) async {
         let sources = CatalogSourceStore.shared.sources
         let plugins = SourcePluginStore.shared.enabledPlugins
-
-        var comicsBySource: [String: [RemoteComic]] = [:]
-        var foldersBySource: [String: [RemoteCatalog.ChildCatalog]] = [:]
-        var errs: [String] = []
-
-        await withTaskGroup(of: (CatalogSource, Result<RemoteCatalog, Error>).self) { group in
-            for source in sources {
-                group.addTask {
-                    do {
-                        return (source, .success(try await CatalogClient.catalog(at: source.url)))
-                    } catch {
-                        return (source, .failure(error))
-                    }
-                }
-            }
-
-            for await (source, result) in group {
-                switch result {
-                case .success(let catalog):
-                    comicsBySource[source.id] = catalog.comics
-                    foldersBySource[source.id] = catalog.childCatalogs
-                case .failure(let error):
-                    errs.append("\(source.name): \(error.localizedDescription)")
-                }
-            }
+        let active = Set(sources.map(\.id) + plugins.map { "plugin:" + $0.id })
+        for key in Array(results.keys) where !active.contains(key) { results[key] = nil }
+        for key in Array(failures.keys) where !active.contains(key) { failures[key] = nil }
+        for key in Array(tasks.keys) where !active.contains(key) {
+            tasks.removeValue(forKey: key)?.cancel()
+            generations[key] = nil
         }
-
-        // A single WebView runtime is shared, so plugin roots are loaded serially.
+        publish()
+        var pending: [Task<Void, Never>] = []
+        for source in sources {
+            pending.append(start(key: source.id, name: source.name) {
+                try await CatalogClient.catalog(at: source.url)
+            })
+        }
         for plugin in plugins {
-            do {
-                let catalog = try await SourcePluginRuntime.shared.catalog(plugin: plugin)
-                comicsBySource["plugin:\(plugin.id)"] = catalog.comics
-                foldersBySource["plugin:\(plugin.id)"] = catalog.childCatalogs
-            } catch {
-                errs.append("\(plugin.name): \(error.localizedDescription)")
-            }
+            pending.append(start(key: "plugin:" + plugin.id, name: plugin.name) {
+                try await SourcePluginRuntime.shared.catalog(plugin: plugin, refresh: refresh)
+            })
         }
-
-        comics = sources.flatMap { comicsBySource[$0.id] ?? [] }
-            + plugins.flatMap { comicsBySource["plugin:\($0.id)"] ?? [] }
-
-        folders = sources.flatMap { foldersBySource[$0.id] ?? [] }
-            + plugins.flatMap { foldersBySource["plugin:\($0.id)"] ?? [] }
-
-        errors = errs
-        loading = false
+        for task in pending { await task.value }
         loadedOnce = true
-
         writeSkippedLog(for: comics)
+    }
+
+    func invalidatePlugin(_ id: String) {
+        let key = "plugin:" + id
+        tasks.removeValue(forKey: key)?.cancel()
+        generations[key] = nil
+        failures[key] = nil
+        BrowseState.shared.invalidatePlugin(id)
+        if SourcePluginStore.shared.plugin(id: id)?.enabled != true { results[key] = nil }
+        publish()
+    }
+
+    func refreshPlugin(_ id: String) async {
+        invalidatePlugin(id)
+        guard let plugin = SourcePluginStore.shared.plugin(id: id), plugin.enabled else { return }
+        await start(key: "plugin:" + id, name: plugin.name) {
+            try await SourcePluginRuntime.shared.catalog(plugin: plugin, refresh: true)
+        }.value
+    }
+
+    private func start(key: String, name: String,
+                       fetch: @escaping @MainActor () async throws -> RemoteCatalog) -> Task<Void, Never> {
+        if let task = tasks[key] { return task }
+        let generation = UUID()
+        generations[key] = generation
+        loading = true
+        let task = Task { @MainActor in
+            do {
+                let result = try await fetch()
+                guard !Task.isCancelled, self.generations[key] == generation else { return }
+                self.results[key] = result
+                self.failures[key] = nil
+            } catch {
+                guard !Task.isCancelled, self.generations[key] == generation else { return }
+                self.failures[key] = "\(name): \(error.localizedDescription)"
+            }
+            self.tasks[key] = nil
+            self.publish()
+        }
+        tasks[key] = task
+        return task
+    }
+
+    private func publish() {
+        let keys = CatalogSourceStore.shared.sources.map(\.id)
+            + SourcePluginStore.shared.enabledPlugins.map { "plugin:" + $0.id }
+        comics = keys.flatMap { results[$0]?.comics ?? [] }
+        folders = keys.flatMap { results[$0]?.childCatalogs ?? [] }
+        errors = keys.compactMap { failures[$0] }
+        loading = !tasks.isEmpty
+        revision += 1
     }
 
     /// Where the skipped-items report is written.
