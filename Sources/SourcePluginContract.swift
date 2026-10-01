@@ -126,7 +126,9 @@ enum SourcePluginContract {
         if comics.isEmpty && folders.isEmpty { warnings.append("empty-result: no comics or catalogs; check page/session/selectors") }
         let normalized: [String: Any] = ["name": name, "comics": comics.map { ["id": $0.id, "title": $0.title,
             "cover": $0.coverURL?.absoluteString as Any? ?? NSNull(), "link": $0.pageURL?.absoluteString as Any? ?? NSNull(),
-            "canRead": $0.canRead, "opensCatalog": $0.opensCatalog] as [String: Any] },
+            "canRead": $0.canRead, "opensCatalog": $0.opensCatalog,
+            "mirrors": $0.mirrors.map(\.absoluteString), "hasMirrors": $0.hasMirrors,
+            "size": $0.size as Any? ?? NSNull(), "format": $0.format as Any? ?? NSNull()] as [String: Any] },
             "catalogs": folders.map { ["name": $0.name, "url": $0.url.absoluteString] }]
         return (RemoteCatalog(name: name, sourceURL: baseURL, sourceID: plugin.id, comics: comics, childCatalogs: folders), warnings, stringify(normalized))
     }

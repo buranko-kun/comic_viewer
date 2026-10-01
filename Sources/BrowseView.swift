@@ -19,6 +19,8 @@ struct BrowseView: View {
     @State private var browseState = BrowseState.shared
     @State private var loadingChild = false
     @State private var childError: String?
+    @State private var recoveryPlugin: SourcePlugin?
+    @State private var childRecoveryPlugin: SourcePlugin?
     @State private var childTask: Task<Void, Never>?
     @State private var childGeneration = UUID()
     @State private var retryChild: (() -> Void)?
@@ -103,6 +105,7 @@ struct BrowseView: View {
             }
         }
         .tint(.white)
+        .sheet(item: $recoveryPlugin) { SourcePluginSessionSheet(plugin: $0) }
         .sheet(item: $pendingNewCollectionItem) { NewCollectionSheet(item: $0) }
         .onAppear {
             swipeBack.onBack = { back() }
@@ -248,8 +251,9 @@ struct BrowseView: View {
                 // A–Z anchor and just prefetch.
                 if !shuffling, d.comics.indices.contains(idx) { browseState.anchorID = d.comics[idx].id }
                 let base = max(0, idx - 8), end = min(items.count, idx + 60)
-                guard base < end else { return }
-                let urls = Array(items[base..<end].compactMap { $0.coverRequest.map { PluginResourceRegistry.shared.boundURL(for: $0) } })
+                guard base < end, idx >= 0, idx < end else { return }
+                let ordered = Array(items[idx..<end]) + Array(items[base..<idx])
+                let urls = Array(ordered.compactMap { $0.coverRequest.map { PluginResourceRegistry.shared.boundURL(for: $0) } })
                 Task { await RemoteImageCache.shared.setPrefetchTarget(urls, maxPixel: 320) }
             },
             onReset: { browseState.anchorID = nil },
@@ -258,7 +262,7 @@ struct BrowseView: View {
                 ? { shelf.reshuffle(); bs.windowStart = 0; bs.windowCount = Self.pageSize } : nil,
             onBeforeLetterJump: { shelf.active = false },
             header: {
-                if !aggregator.errors.isEmpty && browseState.stack.isEmpty { errorBanner }
+                if (!aggregator.errors.isEmpty || !aggregator.cachedSources.isEmpty) && browseState.stack.isEmpty { errorBanner }
                 if d.comics.isEmpty && levelFolders.isEmpty {
                     if isFiltering {
                         ProgressView().controlSize(.small).padding(.top, 60)
@@ -287,13 +291,26 @@ struct BrowseView: View {
 
     private var errorBanner: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(aggregator.errors, id: \.self) { e in
-                Label(e, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.white.opacity(0.8))
+            ForEach(aggregator.sourceFailures) { failure in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("\(failure.name): \(failure.summary)").font(.caption.bold())
+                        Text(failure.detail).font(.caption2).textSelection(.enabled)
+                    }
+                    Spacer()
+                    Button("Retry") { Task { await aggregator.retrySource(failure.id) } }
+                        .disabled(aggregator.isLoadingSource(failure.id))
+                    if failure.id.hasPrefix("plugin:"), let plugin = plugins.plugin(id: String(failure.id.dropFirst(7))) {
+                        Button("Open source browser") { recoveryPlugin = plugin }
+                    } else if let url = URL(string: failure.id) {
+                        Button("Open source") { NSWorkspace.shared.open(url) }
+                    }
+                }
             }
+            if !aggregator.cachedSources.isEmpty { Text(aggregator.loading ? "Showing saved catalogs while sources refresh." : "Showing saved catalogs. Some sources could not refresh.").font(.caption2) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10).background(.red.opacity(0.25))
+        .padding(10).background(aggregator.sourceFailures.isEmpty ? Color.white.opacity(0.08) : Color.red.opacity(0.25))
         .padding(.horizontal, 30).padding(.top, 12)
     }
 
@@ -307,6 +324,9 @@ struct BrowseView: View {
                 Image(systemName: "wifi.exclamationmark").font(.largeTitle)
                 Text(text).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.7))
                 Button("Try again", action: retry).tint(.red)
+                if let plugin = childRecoveryPlugin {
+                    Button("Open source browser") { recoveryPlugin = plugin }
+                }
             }.padding(40)
         }
     }
@@ -416,6 +436,7 @@ struct BrowseView: View {
     }
 
     private func open(_ folder: RemoteCatalog.ChildCatalog) {
+        childRecoveryPlugin = folder.sourceID.flatMap { plugins.plugin(id: $0) }
         runChild(retry: { open(folder) }) {
             let catalog: RemoteCatalog
             if let sourceID = folder.sourceID, let plugin = plugins.plugin(id: sourceID) {
@@ -431,6 +452,7 @@ struct BrowseView: View {
     }
 
     private func reopen(_ cat: RemoteCatalog) {
+        childRecoveryPlugin = cat.sourceID.flatMap { plugins.plugin(id: $0) }
         runChild(retry: { reopen(cat) }) {
             let catalog: RemoteCatalog
             if let sourceID = cat.sourceID, let plugin = plugins.plugin(id: sourceID) {
@@ -492,6 +514,7 @@ struct BrowseView: View {
     }
 
     private func openPluginComic(_ plugin: SourcePlugin, comic: RemoteComic) {
+        childRecoveryPlugin = plugin
         runChild(retry: { openPluginComic(plugin, comic: comic) }) {
             try await PluginComicOpener.open(comic, router: router)
         }

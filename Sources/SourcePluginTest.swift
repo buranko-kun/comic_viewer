@@ -1,16 +1,20 @@
 import Foundation
 import AppKit
 
-/// CLI fixture entry point. Runs the actual WebKit runtime while keeping its main run loop alive.
-/// No installed plugin, settings, or session storage is modified.
+/// CLI fixture/live entry point. Keeps the WebKit main run loop alive.
+/// Fixtures are isolated; --plugin-live uses the browser session and plugin cache.
 enum SourcePluginTest {
     @MainActor static func runIfRequested() {
         let args = ProcessInfo.processInfo.arguments
-        guard args.contains("--sourceplugintest") || args.contains("--plugin-fixtures") else { return }
+        guard args.contains("--sourceplugintest") || args.contains("--plugin-fixtures") || args.contains("--plugin-live") else { return }
         NSApplication.shared.setActivationPolicy(.prohibited)
         Task { @MainActor in
             do {
-                if let index = args.firstIndex(of: "--plugin-fixtures"), args.count > index + 2 {
+                if let index = args.firstIndex(of: "--plugin-live"), args.count > index + 2 {
+                    let scriptURL = URL(fileURLWithPath: args[index + 1])
+                    let script = try String(contentsOf: scriptURL, encoding: .utf8)
+                    try await SourcePluginFixtureRunner.runCase(["url": args[index + 2]], script: script, sourceURL: scriptURL, directory: scriptURL.deletingLastPathComponent(), live: true)
+                } else if let index = args.firstIndex(of: "--plugin-fixtures"), args.count > index + 2 {
                     try await SourcePluginFixtureRunner.run(
                         scriptURL: URL(fileURLWithPath: args[index + 1]),
                         suiteURL: URL(fileURLWithPath: args[index + 2]))
@@ -55,7 +59,7 @@ enum SourcePluginFixtureRunner {
         }
     }
 
-    static func runCase(_ fixture: [String: Any], script: String, sourceURL: URL, directory: URL) async throws {
+    static func runCase(_ fixture: [String: Any], script: String, sourceURL: URL, directory: URL, live: Bool = false) async throws {
         let runtime = SourcePluginRuntime()
         let manifest = try await runtime.manifest(for: script)
         var plugin = SourcePlugin(id: manifest.id, name: manifest.name, version: manifest.version,
@@ -64,7 +68,7 @@ enum SourcePluginFixtureRunner {
                                   sourceURL: sourceURL, fileName: "fixture.js", installedAt: Date(), enabled: true)
         plugin.apiVersion = manifest.apiVersion
         plugin.scriptHash = CentralStore.sha256(script)
-        plugin.operationTimeoutSeconds = 5
+        plugin.operationTimeoutSeconds = live ? manifest.operationTimeoutSeconds : 5
         guard let target = fixture["url"] as? String, let url = URL(string: target) else {
             throw Failure("Fixture requires url")
         }
@@ -81,7 +85,7 @@ enum SourcePluginFixtureRunner {
         } else { html = fixture["html"] as? String ?? "<!doctype html><html><body></body></html>" }
         let responsesJSON = String(data: try JSONSerialization.data(withJSONObject: responses), encoding: .utf8)!
         let settingsJSON = String(data: try JSONSerialization.data(withJSONObject: fixture["settings"] as? [String: Any] ?? [:]), encoding: .utf8)!
-        runtime.setFixture(pluginID: plugin.id, html: html, baseURL: url, responsesJSON: responsesJSON, settingsJSON: settingsJSON)
+        if !live { runtime.setFixture(pluginID: plugin.id, html: html, baseURL: url, responsesJSON: responsesJSON, settingsJSON: settingsJSON) }
         defer { runtime.clearFixture(pluginID: plugin.id) }
         let repeats = max(1, fixture["repeat"] as? Int ?? 1)
         for _ in 0..<repeats {
@@ -92,11 +96,14 @@ enum SourcePluginFixtureRunner {
                     let pages = try await runtime.pages(plugin: plugin, script: script, at: url)
                     output = ["pages": pages.map(\.absoluteString)]
                 case "catalog":
-                    let catalog = try await runtime.catalog(plugin: plugin, script: script, at: url)
+                    let catalog = try await runtime.catalog(plugin: plugin, script: script, at: url, refresh: live)
+                    if live { print("Live catalog: \(catalog.comics.count) comics, \(catalog.comics.filter { $0.coverURL != nil }.count) covers, \(catalog.comics.reduce(0) { $0 + $1.mirrors.count }) mirrors") }
                     output = ["name": catalog.name, "comics": catalog.comics.map { comic -> [String: Any] in
                         ["title": comic.title, "cover": comic.coverURL?.absoluteString as Any? ?? NSNull(),
                          "link": comic.pageURL?.absoluteString as Any? ?? NSNull(),
-                         "canRead": comic.canRead, "opensCatalog": comic.opensCatalog]
+                         "canRead": comic.canRead, "opensCatalog": comic.opensCatalog,
+                         "mirrors": comic.mirrors.map(\.absoluteString), "hasMirrors": comic.hasMirrors,
+                         "size": comic.size as Any? ?? NSNull(), "format": comic.format as Any? ?? NSNull()]
                     }, "catalogs": catalog.childCatalogs.map { ["name": $0.name, "url": $0.url.absoluteString] }]
                 default: throw Failure("Unknown fixture operation")
                 }

@@ -198,7 +198,7 @@ actor RemotePageCache {
                 if Task.isCancelled { return nil }
                 do {
                     let data = try await PluginResourceTransport.data(for: request)
-                    return ImageLoader.decodeDisplay(data: data, maxPixel: maxPixel)
+                    if let image = ImageLoader.decodeDisplay(data: data, maxPixel: maxPixel) { return image }
                 } catch let error as PluginResourceError {
                     if !error.retryable { return nil }
                 } catch { return nil }

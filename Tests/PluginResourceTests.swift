@@ -98,3 +98,40 @@ final class PluginResourceTests: XCTestCase {
     }
 
 }
+
+@MainActor
+final class DownloadRecoveryTests: XCTestCase {
+    func testSignatureRejectsHTMLRegardlessOfSizeAndPreservesRealFormat() throws {
+        XCTAssertEqual(try DownloadValidationError.archiveExtension(Data([0x50,0x4b,0x03,0x04] + Array(repeating: 0, count: 18))), "cbz")
+        XCTAssertEqual(try DownloadValidationError.archiveExtension(Data([0x52,0x61,0x72,0x21,0x1a,0x07] + Array(repeating: 0, count: 8))), "cbr")
+        XCTAssertEqual(try DownloadValidationError.archiveExtension(Data("%PDF-1.4".utf8)), "pdf")
+        XCTAssertThrowsError(try DownloadValidationError.archiveExtension(Data(("<!doctype html>" + String(repeating: "x", count: 1_100_000)).utf8))) { error in
+            XCTAssertTrue((error as? DownloadValidationError)?.needsBrowser == true)
+        }
+        XCTAssertThrowsError(try DownloadValidationError.archiveExtension(Data("not an archive".utf8)))
+    }
+
+    func testHTTPDownloadsRejectWebpageAndSaveSmallFileUsingDetectedExtension() async throws {
+        let server = HttpServer()
+        let pdf = Data("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF".utf8)
+        server["/book"] = { _ in .raw(200, "OK", ["Content-Type":"application/octet-stream"], { try $0.write(pdf) }) }
+        server["/gate"] = { _ in .raw(200, "OK", ["Content-Type":"text/html"], { try $0.write(Data("<html>Log in</html>".utf8)) }) }
+        server["/denied"] = { _ in .raw(403, "Forbidden", [:], nil) }
+        try server.start(0, forceIPv4: true)
+        defer { server.stop() }
+        let base = "http://127.0.0.1:\(try server.port())"
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let saved = try await DownloadManager.perform(from: URL(string: base + "/book")!, title: "Small", destinationFolder: folder, referrer: nil, onProgress: { _ in })
+        XCTAssertEqual(saved.pathExtension, "pdf")
+        XCTAssertEqual(try Data(contentsOf: saved), pdf)
+        for path in ["/gate", "/denied"] {
+            do {
+                _ = try await DownloadManager.perform(from: URL(string: base + path)!, title: "Bad", destinationFolder: folder, referrer: nil, onProgress: { _ in })
+                XCTFail("Gate must not be saved")
+            } catch let error as DownloadValidationError { XCTAssertTrue(error.needsBrowser) }
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).count, 1)
+    }
+}

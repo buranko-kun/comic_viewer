@@ -8,7 +8,7 @@ final class SourcePluginRuntime {
     static let shared = SourcePluginRuntime()
     enum PluginError: LocalizedError {
         case invalidPlugin(String), invalidResult, invalidResultDetail(String), oversizedResult
-        case navigation(Error), javascript(Error), timeout, terminated
+        case navigation(Error), javascript(Error), timeout, terminated, httpStatus(Int)
         var errorDescription: String? {
             switch self {
             case .invalidPlugin(let s): return "Invalid source plugin: \(s)"
@@ -21,6 +21,7 @@ final class SourcePluginRuntime {
                 let message = details["WKJavaScriptExceptionMessage"] as? String ?? e.localizedDescription
                 let line = details["WKJavaScriptExceptionLineNumber"].map { " (line \($0))" } ?? ""
                 return "Source JavaScript failed: \(message)\(line)"
+            case .httpStatus(let status): return "Source returned HTTP \(status). Open the source browser if login or verification is required."
             case .timeout: return "Source operation timed out. The worker was reset."
             case .terminated: return "Source browser process terminated. Retry the operation."
             }
@@ -171,7 +172,13 @@ final class SourcePluginRuntime {
         } else if plugin.capabilities?.contains("browser-session") == true {
             guard let raw = plugin.homepage, let homepage = SourcePluginContract.httpURL(raw) else { throw PluginError.invalidPlugin("browser-session requires an HTTP(S) homepage") }
             if worker.webView.url?.host != homepage.host || worker.webView.url?.scheme != homepage.scheme {
-                try await worker.load(homepage)
+                if plugin.capabilities?.contains("static-session") == true {
+                    // HTML scrapers only need a same-origin fetch/storage context. Loading
+                    // the entire website also waits for ads, scripts, and other subresources.
+                    try await worker.loadHTML("<!doctype html><html></html>", baseURL: homepage)
+                } else {
+                    try await worker.load(homepage)
+                }
             }
         } else if let url { try await worker.load(url) }
         else { try await worker.loadHTML("<!doctype html><html></html>", baseURL: nil) }
@@ -380,6 +387,14 @@ private final class SourcePluginWorker: NSObject, WKNavigationDelegate {
         guard completed === navigation else { return }
         let callback = navigationCompletion; navigationCompletion = nil; navigation = nil
         callback?(error.map { .failure($0) } ?? .success(()))
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.isForMainFrame, let response = navigationResponse.response as? HTTPURLResponse,
+           response.statusCode >= 400 {
+            stop(SourcePluginRuntime.PluginError.httpStatus(response.statusCode))
+            decisionHandler(.cancel)
+        } else { decisionHandler(.allow) }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(navigation) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(navigation, error: error) }

@@ -24,6 +24,7 @@ interface PluginManifest {
   homepage?: string;
   description?: string;
   tags?: string[];
+  /** static-session + browser-session: blank same-origin worker; no homepage scripts/subresources. */
   capabilities?: string[];
   settings?: PluginSetting[];
   /** Default 60 seconds; allowed range 1–900. Navigation independently times out after 30s. */

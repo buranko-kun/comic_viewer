@@ -1,4 +1,5 @@
 import XCTest
+import Swifter
 @testable import ComicViewer
 
 @MainActor
@@ -21,6 +22,21 @@ final class SourcePluginRuntimeTests: XCTestCase {
     private func fixture(_ runtime: SourcePluginRuntime, id: String = "fixture") {
         runtime.setFixture(pluginID: id, html: "<h1>Real DOM</h1>", baseURL: url, responsesJSON: "{}")
     }
+    func testHTTPRejectionIsNotAnEmptyCatalog() async throws {
+        let server = HttpServer()
+        server["/blocked"] = { _ in .raw(403, "Forbidden", ["Content-Type": "text/html"], { try $0.write(Data("<h1>Forbidden</h1>".utf8)) }) }
+        try server.start(0, forceIPv4: true)
+        defer { server.stop() }
+        let target = URL(string: "http://127.0.0.1:\(try server.port())/blocked")!
+        let source = SourcePlugin(id: "blocked", name: "Blocked", version: "1", homepage: target.absoluteString,
+            description: nil, tags: nil, capabilities: [], settings: nil, sourceURL: target,
+            fileName: "fixture.js", installedAt: Date(), enabled: true)
+        do {
+            _ = try await SourcePluginRuntime().catalog(plugin: source, script: script("return {comics:[]};"), at: target)
+            XCTFail("HTTP 403 must surface a recovery error")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("HTTP 403"), error.localizedDescription) }
+    }
+
     func testRealDOMAndContext() async throws {
         let runtime = SourcePluginRuntime(); fixture(runtime)
         let catalog = try await runtime.catalog(plugin: plugin(), script: script("return {comics:[{id:'1',title:document.querySelector('h1').textContent,link:context.url,cover:'cover.jpg'}]};"), at: url)

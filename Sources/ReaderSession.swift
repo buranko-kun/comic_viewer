@@ -18,6 +18,8 @@ final class ReaderSession {
     private(set) var failedURL: URL?
     private(set) var transientMessage: String?
     private(set) var isOpening = false
+    private(set) var isLoadingPage = false
+    var canRetryPage: Bool { failedURL != nil && items.indices.contains(index) && items[index] == failedURL }
     private(set) var openingName: String?
 
     var items: [URL] { navigation.items }
@@ -68,6 +70,7 @@ final class ReaderSession {
         stateStore.cancel()
 
         current = nil
+        isLoadingPage = false
         failedName = nil
         failedURL = nil
         isOpening = true
@@ -188,6 +191,11 @@ final class ReaderSession {
 
     // MARK: Loading
 
+    func retryPage() {
+        guard canRetryPage else { return }
+        reload()
+    }
+
     private func reload() {
         guard items.indices.contains(index) else {
             current = nil
@@ -200,6 +208,9 @@ final class ReaderSession {
         let url = items[index]
         let maxPixel = Self.displayMaxPixel()
         let source = source
+        failedName = nil
+        failedURL = nil
+        isLoadingPage = true
 
         loadTask = Task { [weak self] in
             guard let self else { return }
@@ -214,6 +225,7 @@ final class ReaderSession {
             )
 
             guard !Task.isCancelled, token == loadToken else { return }
+            isLoadingPage = false
             current = img
             renderTick &+= 1
 
@@ -395,6 +407,7 @@ final class ReaderSession {
         orientationProbeTask?.cancel()
         orientationProbeTask = nil
         stateStore.cancel()
+        isLoadingPage = false
         openStartedAt = nil
     }
 }

@@ -41,7 +41,7 @@ actor RemoteImageCache {
         let key = request.cacheKey(maxPixel: maxPixel)
         if let hit = store[key] { touch(key); return (hit, false) }
         if let running = inFlight[key] { return await running.value }
-        let task = Task<(CGImage?, Bool), Never> { await Self.loadOrFetch(request, maxPixel: maxPixel) }
+        let task = Task.detached(priority: Task.currentPriority) { await Self.loadOrFetch(request, maxPixel: maxPixel) }
         inFlight[key] = task
         let res = await task.value
         inFlight[key] = nil
@@ -59,16 +59,17 @@ actor RemoteImageCache {
     /// task — decoupled from the caller, so scrolling can update the target without cancelling
     /// in-flight downloads. The result: a few rows stay decoded ahead of where you're looking.
     func setPrefetchTarget(_ urls: [URL], maxPixel: Int) {
-        prefetchQueue = urls
+        var seen = Set<URL>()
+        prefetchQueue = urls.filter { seen.insert($0).inserted }
         guard !pumping, !prefetchQueue.isEmpty else { return }
         pumping = true
-        Task { await pump(maxPixel: maxPixel) }
+        Task(priority: .utility) { await pump(maxPixel: maxPixel) }
     }
 
     private func pump(maxPixel: Int) async {
         while true {
             var batch: [URL] = []
-            while batch.count < 6, !prefetchQueue.isEmpty {
+            while batch.count < 2, !prefetchQueue.isEmpty {
                 let u = prefetchQueue.removeFirst()
                 batch.append(u)
             }

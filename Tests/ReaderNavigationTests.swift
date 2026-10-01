@@ -3,6 +3,16 @@ import XCTest
 @testable import ComicViewer
 
 final class ReaderNavigationTests: XCTestCase {
+    func testPrefetchPrioritizesAdjacentPagesAndLooksAheadWithoutWrapping() {
+        var navigation = ReaderNavigation()
+        let pages = makePages(count: 5)
+        navigation.configure(items: pages, folder: nil)
+        _ = navigation.goTo(index: 2)
+        XCTAssertEqual(navigation.neighbors(), [pages[3], pages[1], pages[4]])
+        _ = navigation.goTo(index: 4)
+        XCTAssertEqual(navigation.neighbors(), [pages[3]])
+    }
+
     func testChapterOrderingUsesPageOrderAndCustomNames() {
         var navigation = ReaderNavigation()
         let pages = makePages(count: 5)

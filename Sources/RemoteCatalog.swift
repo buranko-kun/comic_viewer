@@ -6,7 +6,7 @@ struct CatalogSource: Identifiable, Hashable, Codable {
     var id: String { url.absoluteString }
 }
 
-struct RemoteComic: Identifiable, Hashable {
+struct RemoteComic: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let description: String?
@@ -49,14 +49,14 @@ struct RemoteComic: Identifiable, Hashable {
     }
 }
 
-struct RemoteCatalog {
+struct RemoteCatalog: Codable {
     let name: String
     let sourceURL: URL
     var sourceID: String? = nil
     let comics: [RemoteComic]
     let childCatalogs: [ChildCatalog]
 
-    struct ChildCatalog: Identifiable, Hashable {
+    struct ChildCatalog: Identifiable, Hashable, Codable {
         let name: String
         let url: URL
         var sourceID: String? = nil
