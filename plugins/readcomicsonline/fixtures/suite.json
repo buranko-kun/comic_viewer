@@ -1,0 +1,170 @@
+{
+  "cases": [
+    {
+      "name": "Cold and warm catalog use real lazy image DOM",
+      "url": "https://readcomicsonline.ru/comic-list?page=1",
+      "repeat": 2,
+      "requestCount": 1,
+      "expected": {
+        "comics": [
+          {
+            "title": "Alpha",
+            "cover": "https://readcomicsonline.ru/uploads/manga/alpha/cover/main.jpg"
+          },
+          {
+            "title": "Beta",
+            "cover": null
+          }
+        ],
+        "catalogs": [
+          {
+            "url": "https://readcomicsonline.ru/comic-list?page=2"
+          }
+        ]
+      },
+      "responses": {
+        "https://readcomicsonline.ru/comic-list?page=1": {
+          "file": "catalog.html"
+        },
+        "https://readcomicsonline.ru/comic-list?page=2": {
+          "file": "last.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha": {
+          "file": "series.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha/2": {
+          "file": "chapter.html"
+        }
+      }
+    },
+    {
+      "name": "Last page has no next folder",
+      "url": "https://readcomicsonline.ru/comic-list?page=2",
+      "requestCount": 1,
+      "expected": {
+        "comics": [
+          {
+            "title": "Gamma"
+          }
+        ],
+        "catalogs": []
+      },
+      "responses": {
+        "https://readcomicsonline.ru/comic-list?page=1": {
+          "file": "catalog.html"
+        },
+        "https://readcomicsonline.ru/comic-list?page=2": {
+          "file": "last.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha": {
+          "file": "series.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha/2": {
+          "file": "chapter.html"
+        }
+      }
+    },
+    {
+      "name": "Opt-in complete catalog",
+      "url": "https://readcomicsonline.ru/comic-list?page=1",
+      "settings": {
+        "fullCatalog": true
+      },
+      "requestCount": 2,
+      "expected": {
+        "comics": [
+          {
+            "title": "Alpha"
+          },
+          {
+            "title": "Beta"
+          },
+          {
+            "title": "Gamma"
+          }
+        ],
+        "catalogs": []
+      },
+      "responses": {
+        "https://readcomicsonline.ru/comic-list?page=1": {
+          "file": "catalog.html"
+        },
+        "https://readcomicsonline.ru/comic-list?page=2": {
+          "file": "last.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha": {
+          "file": "series.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha/2": {
+          "file": "chapter.html"
+        }
+      }
+    },
+    {
+      "name": "Series chapter sorting and cover",
+      "url": "https://readcomicsonline.ru/comic/alpha",
+      "expected": {
+        "name": "Alpha",
+        "comics": [
+          {
+            "title": "Alpha #2",
+            "canRead": true
+          },
+          {
+            "title": "Alpha #10",
+            "canRead": true
+          }
+        ]
+      },
+      "responses": {
+        "https://readcomicsonline.ru/comic-list?page=1": {
+          "file": "catalog.html"
+        },
+        "https://readcomicsonline.ru/comic-list?page=2": {
+          "file": "last.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha": {
+          "file": "series.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha/2": {
+          "file": "chapter.html"
+        }
+      }
+    },
+    {
+      "name": "Chapter lazy images deduplicate and sort",
+      "url": "https://readcomicsonline.ru/comic/alpha/2",
+      "operation": "pages",
+      "expected": {
+        "pages": [
+          "https://cdn.readcomicsonline.ru/uploads/manga/alpha/chapters/2/2.jpg",
+          "https://cdn.readcomicsonline.ru/uploads/manga/alpha/chapters/2/10.jpg"
+        ]
+      },
+      "responses": {
+        "https://readcomicsonline.ru/comic-list?page=1": {
+          "file": "catalog.html"
+        },
+        "https://readcomicsonline.ru/comic-list?page=2": {
+          "file": "last.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha": {
+          "file": "series.html"
+        },
+        "https://readcomicsonline.ru/comic/alpha/2": {
+          "file": "chapter.html"
+        }
+      }
+    },
+    {
+      "name": "Challenge page fails instead of empty catalog",
+      "url": "https://readcomicsonline.ru/comic-list?page=1",
+      "responses": {
+        "https://readcomicsonline.ru/comic-list?page=1": {
+          "body": "<html><h1>Checking your browser</h1></html>"
+        }
+      },
+      "expectedError": "No catalog entries found"
+    }
+  ]
+}

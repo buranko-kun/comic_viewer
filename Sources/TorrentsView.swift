@@ -472,7 +472,7 @@ struct CreateTorrentSheet: View {
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try TorrentCreator.create(
+                    try await TorrentCreator.create(
                         sourceURL: sourceURL,
                         trackers: trackers,
                         comment: comment.isEmpty ? nil : comment

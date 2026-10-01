@@ -12,11 +12,11 @@ final class ReaderStateStore {
     private var stateURL: URL?
     private var legacyStateURLs: [URL] = []
     private var saveTask: Task<Void, Never>?
+    private var pendingState: ComicState?
 
-    /// Select the state file for a newly opened comic and cancel any delayed save for the previous
-    /// comic so it cannot leak state into the new source.
+    /// Flush the previous comic before switching destinations, so rapid navigation is not lost.
     func configure(comicKey: String?, legacyStateURLs: [URL]) {
-        cancelScheduledSave()
+        flush()
         stateURL = comicKey.map { CentralStore.stateURL(for: $0) }
         self.legacyStateURLs = legacyStateURLs
     }
@@ -50,6 +50,7 @@ final class ReaderStateStore {
 
     func scheduleSave(_ state: ComicState) {
         saveTask?.cancel()
+        pendingState = state
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(0.6))
             guard !Task.isCancelled, let self else { return }
@@ -58,6 +59,8 @@ final class ReaderStateStore {
     }
 
     func save(_ input: ComicState) {
+        cancelScheduledSave()
+        pendingState = nil
         var state = input
         state.lastReadAt = Date()
         guard let stateURL else { return }
@@ -77,9 +80,12 @@ final class ReaderStateStore {
         }
     }
 
-    func cancel() {
+    func flush() {
         cancelScheduledSave()
+        if let pendingState { save(pendingState) }
     }
+
+    func cancel() { flush() }
 
     private func cancelScheduledSave() {
         saveTask?.cancel()

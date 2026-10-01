@@ -6,7 +6,7 @@ struct CatalogSource: Identifiable, Hashable, Codable {
     var id: String { url.absoluteString }
 }
 
-struct RemoteComic: Identifiable, Hashable {
+struct RemoteComic: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let description: String?
@@ -26,8 +26,11 @@ struct RemoteComic: Identifiable, Hashable {
     var opensCatalog: Bool = false
     /// Plugin sources can resolve the card into page image URLs and open it directly in the reader.
     var canRead: Bool = false
+    var coverResource: PluginResourceRequest? = nil
 
-    var coverURL: URL? { coverString.flatMap { URL(string: $0) } }
+    var coverRequest: PluginResourceRequest? { coverResource ?? coverURL.map { PluginResourceRegistry.shared.request(for: $0) } }
+
+    var coverURL: URL? { coverResource?.url ?? coverString.flatMap { URL(string: $0) } }
     var pageURL: URL? { pageString.flatMap { URL(string: $0) } }
 
     var resolvedFormat: String? {
@@ -46,14 +49,14 @@ struct RemoteComic: Identifiable, Hashable {
     }
 }
 
-struct RemoteCatalog {
+struct RemoteCatalog: Codable {
     let name: String
     let sourceURL: URL
     var sourceID: String? = nil
     let comics: [RemoteComic]
     let childCatalogs: [ChildCatalog]
 
-    struct ChildCatalog: Identifiable, Hashable {
+    struct ChildCatalog: Identifiable, Hashable, Codable {
         let name: String
         let url: URL
         var sourceID: String? = nil

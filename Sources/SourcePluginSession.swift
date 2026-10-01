@@ -7,9 +7,11 @@ struct SourcePluginSessionSheet: View {
     let plugin: SourcePlugin
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
+    @State private var canGoBack = false
+    @State private var canGoForward = false
 
     private var webView: WKWebView {
-        SourcePluginRuntime.shared.sessionWebView
+        SourcePluginRuntime.shared.sessionWebView(for: plugin)
     }
 
     var body: some View {
@@ -28,7 +30,7 @@ struct SourcePluginSessionSheet: View {
                 } label: {
                     Image(systemName: "chevron.left")
                 }
-                .disabled(!webView.canGoBack)
+                .disabled(!canGoBack)
                 .help("Back")
 
                 Button {
@@ -36,7 +38,7 @@ struct SourcePluginSessionSheet: View {
                 } label: {
                     Image(systemName: "chevron.right")
                 }
-                .disabled(!webView.canGoForward)
+                .disabled(!canGoForward)
                 .help("Forward")
 
                 Button {
@@ -68,6 +70,8 @@ struct SourcePluginSessionSheet: View {
             }
         }
         .frame(minWidth: 900, minHeight: 650)
+        .onReceive(webView.publisher(for: \.canGoBack)) { canGoBack = $0 }
+        .onReceive(webView.publisher(for: \.canGoForward)) { canGoForward = $0 }
         .task {
             do {
                 try await SourcePluginRuntime.shared.openSession(for: plugin)

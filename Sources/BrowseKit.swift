@@ -56,6 +56,7 @@ struct CoverImage<Placeholder: View>: View {
     /// is wrong), this resolves the *real* URL (possibly via network) and loads that instead of
     /// giving up. Only invoked after `url`'s retries are exhausted.
     var resolveFallback: (() async -> URL?)? = nil
+    var resource: PluginResourceRequest? = nil
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var cg: CGImage?
@@ -71,7 +72,7 @@ struct CoverImage<Placeholder: View>: View {
                 placeholder()
             }
         }
-        .task(id: url) {
+        .task(id: (resource ?? url.map { PluginResourceRegistry.shared.request(for: $0) })?.cacheKey(maxPixel: maxPixel)) {
             cg = nil; gaveUp = false
             // Covers can transiently fail — a burst (e.g. a whole issue grid at once) gets the CDN
             // rate-limiting (429). Retry with capped backoff + jitter so the burst desynchronizes
@@ -91,7 +92,7 @@ struct CoverImage<Placeholder: View>: View {
     /// never load, so the caller should fall back at once) or on cancellation.
     private func tryLoad(_ url: URL) async -> Bool {
         for attempt in 0...max(0, retries) {
-            let r = await Self.load(url, maxPixel: maxPixel)
+            let r = await loadResource(url)
             if let cg = r.image { self.cg = cg; return true }
             if r.notFound || Task.isCancelled { return false }   // don't retry a definitive miss
             if attempt < retries {
@@ -100,6 +101,13 @@ struct CoverImage<Placeholder: View>: View {
             }
         }
         return false
+    }
+
+    private func loadResource(_ target: URL) async -> (image: CGImage?, notFound: Bool) {
+        if let resource, target == url {
+            return await RemoteImageCache.shared.result(for: resource, maxPixel: maxPixel)
+        }
+        return await Self.load(target, maxPixel: maxPixel)
     }
 
     /// Local files → `ThumbnailCache`; remote URLs → `RemoteImageCache`. Both downsample + cache.

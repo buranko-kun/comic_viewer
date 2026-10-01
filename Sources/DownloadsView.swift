@@ -74,14 +74,14 @@ struct DownloadsView: View {
     }
 
     private var summary: String {
-        let active = dl.activeCount
+        let active = dl.jobs.filter { if case .downloading = $0.status { return true }; return false }.count
         let queued = dl.jobs.filter {
             if case .queued = $0.status { return true }
             return false
         }.count
 
         if active == 0 {
-            return dl.jobs.isEmpty ? "No downloads" : "All done"
+            return dl.jobs.isEmpty ? "No downloads" : "\(dl.jobs.filter { $0.status == .done }.count) completed · \(dl.jobs.filter { $0.status == .failed || $0.status == .needsBrowser }.count) need attention"
         }
 
         if queued > 0 {
@@ -158,13 +158,13 @@ private struct DownloadRow: View {
                 }
             }
         case .done:
-            Label("Downloaded to library", systemImage: "checkmark.circle.fill")
+            Label("Downloaded", systemImage: "checkmark.circle.fill")
                 .font(.caption2).foregroundStyle(.green)
         case .needsBrowser:
-            Text("No direct link — open in browser")
+            Text(job.errorMessage ?? "No direct link — open in browser")
                 .font(.caption2).foregroundStyle(.orange)
         case .failed:
-            Text("Failed").font(.caption2).foregroundStyle(.orange)
+            Text(job.errorMessage ?? "Download failed. Retry or open the source in your browser.").font(.caption2).foregroundStyle(.orange)
         case .idle:
             EmptyView()
         }
@@ -174,11 +174,10 @@ private struct DownloadRow: View {
         switch job.status {
         case .queued, .downloading:
             iconButton("xmark.circle.fill", help: "Cancel") { dl.cancel(job.id) }
-        case .failed:
-            iconButton("arrow.clockwise.circle.fill", help: "Retry") { dl.retry(job.id) }
-        case .needsBrowser:
-            iconButton("arrow.up.forward.circle.fill", help: "Open in browser") {
-                dl.openInBrowser(job.item)
+        case .failed, .needsBrowser:
+            HStack {
+                iconButton("arrow.clockwise.circle.fill", help: "Retry") { dl.retry(job.id) }
+                iconButton("arrow.up.forward.circle.fill", help: "Open in browser") { dl.openInBrowser(job.item) }
             }
         case .done:
             iconButton("xmark.circle", help: "Remove from list") { dl.cancel(job.id) }

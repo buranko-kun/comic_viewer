@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var note: String?
     @State private var sessionPlugin: SourcePlugin?
     @State private var settingsPlugin: SourcePlugin?
+    @State private var developmentPlugin: SourcePlugin?
 
     var body: some View {
         TabView {
@@ -38,6 +39,9 @@ struct SettingsView: View {
         }
         .sheet(item: $settingsPlugin) { plugin in
             SourcePluginSettingsView(plugin: plugin)
+        }
+        .sheet(item: $developmentPlugin) { plugin in
+            SourcePluginDevelopmentView(plugin: plugin)
         }
     }
 
@@ -120,7 +124,8 @@ struct SettingsView: View {
                                             },
                                             set: { value in
                                                 plugins.setEnabled(plugin.id, enabled: value)
-                                                refresh()
+                                                note = plugins.lastError
+                                                Task { await CatalogAggregator.shared.refreshPlugin(plugin.id) }
                                             }
                                         )
                                     )
@@ -135,6 +140,14 @@ struct SettingsView: View {
                                     }
 
                                     Spacer()
+
+                                    Button {
+                                        developmentPlugin = plugin
+                                    } label: {
+                                        Image(systemName: "hammer")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Develop and test source")
 
                                     Button {
                                         sessionPlugin = plugin
@@ -159,7 +172,7 @@ struct SettingsView: View {
                                             do {
                                                 let updated = try await plugins.update(plugin)
                                                 note = "Updated \(updated.name) to v\(updated.version)."
-                                                refresh()
+                                                await CatalogAggregator.shared.refreshPlugin(updated.id)
                                             } catch {
                                                 note = "Couldn't update \(plugin.name): \(error.localizedDescription)"
                                             }
@@ -172,7 +185,8 @@ struct SettingsView: View {
 
                                     Button(role: .destructive) {
                                         plugins.remove(plugin)
-                                        refresh()
+                                        note = plugins.lastError
+                                        CatalogAggregator.shared.invalidatePlugin(plugin.id)
                                     } label: {
                                         Image(systemName: "trash")
                                     }
@@ -246,7 +260,7 @@ struct SettingsView: View {
                 let plugin = try await plugins.install(from: url)
                 newPluginURL = ""
                 note = "Installed \(plugin.name) v\(plugin.version)."
-                refresh()
+                await CatalogAggregator.shared.refreshPlugin(plugin.id)
             } catch {
                 note = "Couldn't install plugin: \(error.localizedDescription)"
             }
@@ -265,7 +279,7 @@ struct SettingsView: View {
             do {
                 let plugin = try await plugins.install(localURL: file)
                 note = "Installed \(plugin.name) v\(plugin.version)."
-                refresh()
+                await CatalogAggregator.shared.refreshPlugin(plugin.id)
             } catch {
                 note = "Couldn't install plugin: \(error.localizedDescription)"
             }
@@ -784,88 +798,76 @@ private struct SharingTab: View {
 
 private struct SourcePluginSettingsView: View {
     let plugin: SourcePlugin
-    @State private var store = SourcePluginSettingsStore.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: [String: SourcePluginSettingValue] = [:]
+    @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(plugin.name).font(.title2.weight(.semibold))
             Text("Source settings").font(.headline)
-
-            if let settings = plugin.settings, !settings.isEmpty {
-                ForEach(settings) { setting in
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
-                            switch setting.type.lowercased() {
-                            case "toggle", "bool", "boolean":
-                                Toggle(setting.title, isOn: boolBinding(for: setting))
-                            case "select", "picker":
-                                HStack {
-                                    Text(setting.title)
-                                    Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(plugin.settings ?? []) { setting in
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 8) {
+                                switch setting.type.lowercased() {
+                                case "toggle", "bool", "boolean":
+                                    Toggle(setting.title, isOn: Binding(
+                                        get: { draft[setting.id]?.boolValue ?? false },
+                                        set: { draft[setting.id] = .bool($0) }))
+                                case "select", "picker":
                                     Picker(setting.title, selection: stringBinding(for: setting)) {
-                                        ForEach(setting.options ?? [], id: \.self) { option in
-                                            Text(option).tag(option)
-                                        }
+                                        ForEach(setting.options ?? [], id: \.self) { Text($0).tag($0) }
                                     }
-                                    .frame(width: 180)
+                                default:
+                                    TextField(setting.title, text: stringBinding(for: setting))
+                                        .textFieldStyle(.roundedBorder)
                                 }
-                            default:
-                                TextField(setting.title, text: stringBinding(for: setting))
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            if let description = setting.description {
-                                Text(description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                                if let description = setting.description {
+                                    Text(description).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }.padding(4)
                         }
-                        .padding(4)
                     }
                 }
-            } else {
-                Text("This source has no configurable settings.")
-                    .foregroundStyle(.secondary)
             }
-
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {
-                Spacer()
                 Button("Reset to Defaults") {
-                    store.reset(plugin)
+                    draft = Dictionary(uniqueKeysWithValues: (plugin.settings ?? []).map { ($0.id, $0.defaultValue) })
                 }
-                Button("Done") {
-                    NSApp.keyWindow?.close()
-                }
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Apply") {
+                    do {
+                        try SourcePluginSettingsStore.shared.apply(draft, for: plugin)
+                        Task { await CatalogAggregator.shared.refreshPlugin(plugin.id) }
+                        dismiss()
+                    } catch { self.error = error.localizedDescription }
+                }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 520, height: 420)
+        .onAppear {
+            draft = Dictionary(uniqueKeysWithValues: (plugin.settings ?? []).map {
+                ($0.id, SourcePluginSettingsStore.shared.value(for: plugin, key: $0.id))
+            })
+        }
     }
 
     private func stringBinding(for setting: SourcePluginSetting) -> Binding<String> {
-        Binding(
-            get: {
-                switch store.value(for: plugin, key: setting.id) {
-                case .string(let value): return value
-                case .number(let value): return String(value)
-                case .bool(let value): return String(value)
-                }
-            },
-            set: { value in
-                store.set(.string(value), for: plugin, key: setting.id)
+        Binding(get: {
+            switch draft[setting.id] ?? setting.defaultValue {
+            case .string(let value): return value
+            case .number(let value): return String(value)
+            case .bool(let value): return String(value)
             }
-        )
-    }
-
-    private func boolBinding(for setting: SourcePluginSetting) -> Binding<Bool> {
-        Binding(
-            get: {
-                if case .bool(let value) = store.value(for: plugin, key: setting.id) { return value }
-                return false
-            },
-            set: { value in
-                store.set(.bool(value), for: plugin, key: setting.id)
-            }
-        )
+        }, set: { value in
+            if setting.type.lowercased() == "number", let number = Double(value) {
+                draft[setting.id] = .number(number)
+            } else { draft[setting.id] = .string(value) }
+        })
     }
 }

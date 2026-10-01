@@ -100,3 +100,33 @@ final class CatalogTests: XCTestCase {
         return first == "{" || first == "["
     }
 }
+
+final class CatalogRecoveryTests: XCTestCase {
+    func testSourceFailureDistinguishesBlockingLoginAndTimeout() {
+        XCTAssertEqual(SourceFailure(id: "a", name: "A", detail: "HTTP 401").summary, "Login required")
+        XCTAssertEqual(SourceFailure(id: "a", name: "A", detail: "HTTP 403").summary, "Site blocked access")
+        XCTAssertEqual(SourceFailure(id: "a", name: "A", detail: "Source operation timed out.").summary, "Source timed out")
+        XCTAssertEqual(SourceFailure(id: "a", name: "A", detail: "Invalid data").summary, "Request failed")
+    }
+
+    func testSnapshotsSurviveNewCacheInstanceAndIgnoreCorruption() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = URL(string: "https://example.org/catalog")!
+        let catalog = try JSONCatalogProvider.parse(Data(#"{"name":"Saved","comics":[{"title":"Book","mirrors":["book.cbz"],"cover":"cover.jpg"}]}"#.utf8), sourceURL: url)
+        await CatalogSnapshotCache(directory: directory).save(catalog, key: "source")
+        let fresh = CatalogSnapshotCache(directory: directory)
+        let loaded = await fresh.load(key: "source")
+        XCTAssertEqual(loaded?.comics, catalog.comics)
+        let other = await fresh.load(key: "other-script-version")
+        XCTAssertNil(other)
+        let file = directory.appendingPathComponent(CentralStore.sha256("source") + ".json")
+        try Data("broken".utf8).write(to: file)
+        let broken = await fresh.load(key: "source")
+        XCTAssertNil(broken)
+        let stale = CatalogSnapshotCache.Snapshot(saved: Date(timeIntervalSince1970: 1), catalog: catalog)
+        try JSONEncoder().encode(stale).write(to: file)
+        let expired = await fresh.load(key: "source")
+        XCTAssertNil(expired)
+    }
+}

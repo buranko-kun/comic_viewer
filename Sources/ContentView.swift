@@ -20,6 +20,7 @@ struct ContentView: View {
 
     // Zoom & pan (screen-space transform over the fitted image).
     @State private var zoom: CGFloat = 1
+    @State private var showSlowPageLoading = false
     @State private var pan: CGSize = .zero
     @GestureState private var dragOffset: CGSize = .zero
     @State private var containerSize: CGSize = .zero
@@ -100,13 +101,20 @@ struct ContentView: View {
                             applyFitMode(container: size, animated: false)
                         }
                 }
-            } else if model.isOpening {
+                .overlay(alignment: .topTrailing) {
+                    if showSlowPageLoading {
+                        ProgressView().controlSize(.small).padding(12)
+                            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                            .padding(16)
+                    }
+                }
+            } else if model.isOpening || model.isLoadingPage {
                 VStack(spacing: 16) {
                     ProgressView()
                         .controlSize(.large)
                         .tint(.white)
 
-                    Text("Opening \(model.openingName ?? "comic")…")
+                    Text(model.isOpening ? "Opening \(model.openingName ?? "comic")…" : "Loading page \(model.index + 1)…")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.6))
                         .lineLimit(1)
@@ -124,11 +132,14 @@ struct ContentView: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 420)
 
-                    Text("The file may be damaged, or in a format that can't be read.")
+                    Text(model.failedURL?.isFileURL == false ? "This page could not be loaded. Check your connection or source session, then retry." : "The file may be damaged, or in a format that can't be read.")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.45))
 
-                    if let url = model.failedURL {
+                    if model.canRetryPage {
+                        Button("Retry page") { model.retryPage() }.buttonStyle(.borderedProminent)
+                    }
+                    if let url = model.failedURL, url.isFileURL {
                         Button {
                             NSWorkspace.shared.activateFileViewerSelecting([url])
                         } label: {
@@ -145,6 +156,17 @@ struct ContentView: View {
                 Text("Open an image  (⌘O)")
                     .font(.title2)
                     .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .task(id: model.isLoadingPage) {
+            showSlowPageLoading = false
+            guard model.isLoadingPage else { return }
+            do {
+                try await Task.sleep(for: .seconds(3))
+                guard model.isLoadingPage else { return }
+                showSlowPageLoading = true
+            } catch {
+                // A page finished loading before the delay elapsed.
             }
         }
     }

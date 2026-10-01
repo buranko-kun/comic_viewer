@@ -10,7 +10,7 @@
 //   parseCatalog()
 //
 // Optional:
-//   searchURL(query)
+//   clearCache()
 //   parsePages()
 //
 // The manifest metadata is deliberately similar to HakuNeko's connector metadata:
@@ -25,16 +25,13 @@ globalThis.ComicViewerSource = {
         homepage: "https://example.com",
         description: "Example source plugin",
         tags: ["comic", "english"],
-        capabilities: ["browse", "search", "read"]
+        apiVersion: 1,
+        capabilities: ["browse", "read"]
     },
 
     browseURL: "https://example.com/comics",
 
-    searchURL(query) {
-        return "https://example.com/search?q=" + encodeURIComponent(query);
-    },
-
-    parseCatalog() {
+    parseCatalog(context) {
         const comics = Array.from(document.querySelectorAll(".comic-card")).map((card, index) => {
             const anchor = card.querySelector("a");
             const image = card.querySelector("img");
@@ -45,7 +42,8 @@ globalThis.ComicViewerSource = {
                 title: title ? title.textContent.trim() : "Untitled",
                 link: anchor ? anchor.href : null,
                 cover: image ? image.src : null,
-                mirrors: []
+                mirrors: [],
+                canRead: true
             };
         });
 
@@ -56,9 +54,9 @@ globalThis.ComicViewerSource = {
         };
     },
 
-    async parsePages() {
+    async parsePages(context) {
         return {
-            pages: Array.from(document.querySelectorAll("img"))
+            pages: Array.from(document.querySelectorAll(".reader img"))
                 .map(image => image.src)
                 .filter(Boolean)
         };

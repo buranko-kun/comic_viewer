@@ -162,9 +162,9 @@ actor ImageCache {
 actor RemotePageCache {
     static let shared = RemotePageCache()
 
-    private var store: [URL: DisplayImage] = [:]
-    private var order: [URL] = []
-    private var inFlight: [URL: Task<DisplayImage?, Never>] = [:]
+    private var store: [String: DisplayImage] = [:]
+    private var order: [String] = []
+    private var inFlight: [String: Task<DisplayImage?, Never>] = [:]
     private lazy var prefetchScheduler = RemotePrefetchScheduler { [weak self] url, maxPixel in
         guard let self else { return }
         _ = await self.image(for: url, maxPixel: maxPixel)
@@ -174,15 +174,20 @@ actor RemotePageCache {
     /// How many times to (re)try fetching a page before giving up. Streamed pages routinely fail
     /// transiently under a burst of requests or a flaky connection, but succeed on a retry — so we
     /// keep trying (with backoff) rather than flashing "couldn't load" for a page that will load.
-    private static let maxAttempts = 10
+    private static let maxAttempts = 3
 
     func image(for url: URL, maxPixel: Int) async -> DisplayImage? {
-        if let hit = store[url] {
-            touch(url)
+        await image(for: PluginResourceRegistry.shared.request(for: url), maxPixel: maxPixel)
+    }
+
+    func image(for request: PluginResourceRequest, maxPixel: Int) async -> DisplayImage? {
+        let key = request.cacheKey(maxPixel: maxPixel)
+        if let hit = store[key] {
+            touch(key)
             ReaderPerformance.event("remote_page_cache hit")
             return hit
         }
-        if let running = inFlight[url] {
+        if let running = inFlight[key] {
             ReaderPerformance.event("remote_page_cache coalesced")
             return await running.value
         }
@@ -191,33 +196,35 @@ actor RemotePageCache {
         let task = Task<DisplayImage?, Never> {
             for attempt in 0..<Self.maxAttempts {
                 if Task.isCancelled { return nil }
-                if let (data, resp) = try? await URLSession.shared.data(from: url),
-                   (resp as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
-                   let img = ImageLoader.decodeDisplay(data: data, maxPixel: maxPixel) {
-                    return img
-                }
+                do {
+                    let data = try await PluginResourceTransport.data(for: request)
+                    if let image = ImageLoader.decodeDisplay(data: data, maxPixel: maxPixel) { return image }
+                } catch let error as PluginResourceError {
+                    if !error.retryable { return nil }
+                } catch { return nil }
                 // Transient failure (network error, non-2xx, or partial/corrupt decode) — wait a
                 // little (increasing, capped) and try again.
                 if attempt < Self.maxAttempts - 1 {
-                    try? await Task.sleep(for: .milliseconds(min(1200, 300 * (attempt + 1))))
+                    do { try await Task.sleep(for: .milliseconds(min(1200, 300 * (attempt + 1)))) } catch { return nil }
                 }
             }
             return nil
         }
-        inFlight[url] = task
+        inFlight[key] = task
         let img = await task.value
         ReaderPerformance.metric(
             "remote_page_load",
             milliseconds: ReaderPerformance.milliseconds(since: startedAt)
         )
-        inFlight[url] = nil
-        if let img { insert(url, img) }
+        inFlight[key] = nil
+        if let img { insert(key, img) }
         return img
     }
 
     func prefetch(_ urls: [URL], maxPixel: Int) async {
         let targets = urls.filter {
-            store[$0] == nil && inFlight[$0] == nil
+            let key = PluginResourceRegistry.shared.request(for: $0).cacheKey(maxPixel: maxPixel)
+            return store[key] == nil && inFlight[key] == nil
         }
         await prefetchScheduler.setTarget(targets, maxPixel: maxPixel)
         ReaderPerformance.event(
@@ -231,12 +238,12 @@ actor RemotePageCache {
     }
 
 
-    private func insert(_ url: URL, _ img: DisplayImage) {
-        store[url] = img; touch(url)
+    private func insert(_ key: String, _ img: DisplayImage) {
+        store[key] = img; touch(key)
         while order.count > capacity { store[order.removeFirst()] = nil }
     }
 
-    private func touch(_ url: URL) {
-        order.removeAll { $0 == url }; order.append(url)
+    private func touch(_ key: String) {
+        order.removeAll { $0 == key }; order.append(key)
     }
 }

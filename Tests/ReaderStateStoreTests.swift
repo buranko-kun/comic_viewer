@@ -67,7 +67,7 @@ final class ReaderStateStoreTests: XCTestCase {
         XCTAssertEqual(loaded.state?.chapters, ["page-2.jpg"])
     }
 
-    func testConfigureCancelsPendingSaveForPreviousComic() async {
+    func testConfigureFlushesPendingSaveToPreviousComicOnly() async {
         let firstKey = comicKey!
         let secondKey = "/tmp/ComicViewerTests/state-" + UUID().uuidString
 
@@ -90,7 +90,21 @@ final class ReaderStateStoreTests: XCTestCase {
 
         try? await Task.sleep(for: .seconds(0.8))
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: CentralStore.stateURL(for: firstKey).path))
+        let saved = try? JSONDecoder().decode(ComicState.self, from: Data(contentsOf: CentralStore.stateURL(for: firstKey)))
+        XCTAssertEqual(saved?.lastPage, "page-1.jpg")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: CentralStore.stateURL(for: secondKey).path))
         try? FileManager.default.removeItem(at: CentralStore.stateURL(for: secondKey))
     }
+    func testCancelFlushesLatestPositionImmediately() {
+        let store = ReaderStateStore()
+        store.configure(comicKey: comicKey, legacyStateURLs: [])
+        var state = ComicState(version: 3, chapters: [], chapterNames: [:], lastPage: "1.jpg", lastIndex: 0, pageCount: 4, manualRotate: nil, path: comicKey)
+        store.scheduleSave(state)
+        state.lastPage = "3.jpg"; state.lastIndex = 2
+        store.scheduleSave(state)
+        store.cancel()
+        XCTAssertEqual(store.load().state?.lastPage, "3.jpg")
+        XCTAssertEqual(store.load().state?.lastIndex, 2)
+    }
+
 }

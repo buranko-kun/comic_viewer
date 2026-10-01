@@ -27,6 +27,9 @@ final class AppModel {
     var failedURL: URL? { reader.failedURL }
     var transientMessage: String? { reader.transientMessage }
     var isOpening: Bool { reader.isOpening }
+    var isLoadingPage: Bool { reader.isLoadingPage }
+    var canRetryPage: Bool { reader.canRetryPage }
+    func retryPage() { reader.retryPage() }
     var openingName: String? { reader.openingName }
     var chapters: Set<String> { reader.chapters }
     var chapterNames: [String: String] { reader.chapterNames }

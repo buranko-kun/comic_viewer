@@ -33,6 +33,10 @@ enum UnifiedSearchItem: Identifiable {
         }
     }
 
+    var coverRequest: PluginResourceRequest? {
+        switch self { case .catalog(let comic): return comic.coverRequest }
+    }
+
     var sourceName: String {
         switch self {
         case .catalog(let comic): return comic.sourceName
@@ -51,6 +55,10 @@ struct OnlineSearchView: View {
     @State private var searching = false
     @State private var loaded = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var openTask: Task<Void, Never>?
+    @State private var opening = false
+    @State private var openError: String?
+    @State private var retryItem: UnifiedSearchItem?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -60,6 +68,17 @@ struct OnlineSearchView: View {
             VStack(spacing: 0) {
                 topBar
                 Divider().overlay(.white.opacity(0.12))
+                if let openError {
+                    HStack {
+                        Text(openError).font(.caption)
+                        Button("Retry") { if let item = retryItem { open(item) } }
+                        Button("Dismiss") { self.openError = nil }
+                    }.padding()
+                }
+                if opening {
+                    HStack { ProgressView(); Text("Opening source…"); Button("Cancel") { openTask?.cancel(); opening = false } }
+                        .padding()
+                }
                 content
             }
         }
@@ -68,8 +87,9 @@ struct OnlineSearchView: View {
             searchFocused = true
             Task { await ensureIndexesLoaded(); runSearch() }
         }
-        .onDisappear { searchTask?.cancel() }
+        .onDisappear { searchTask?.cancel(); openTask?.cancel() }
         .onChange(of: state.query) { _, _ in runSearch() }
+        .onChange(of: aggregator.revision) { _, _ in runSearch() }
     }
 
     private var topBar: some View {
@@ -92,7 +112,7 @@ struct OnlineSearchView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
-                TextField("Search every source", text: $state.query)
+                TextField("Search loaded catalogs", text: $state.query)
                     .textFieldStyle(.plain)
                     .frame(width: 320)
                     .focused($searchFocused)
@@ -138,7 +158,7 @@ struct OnlineSearchView: View {
                         .font(.system(size: 44)).foregroundStyle(.white.opacity(0.35))
                     Text("Search your online catalogs")
                         .font(.title3.bold()).foregroundStyle(.white)
-                    Text("Results are combined from every configured catalog.")
+                    Text("Searches entries currently loaded from your sources.")
                         .font(.callout).foregroundStyle(.white.opacity(0.55))
                         .multilineTextAlignment(.center)
                 }
@@ -177,9 +197,20 @@ struct OnlineSearchView: View {
     }
 
     private func open(_ item: UnifiedSearchItem) {
-        switch item {
-        case .catalog(let comic):
-            if let url = comic.pageURL { NSWorkspace.shared.open(url) }
+        openTask?.cancel()
+        retryItem = item
+        openError = nil
+        opening = true
+        openTask = Task { @MainActor in
+            do {
+                switch item {
+                case .catalog(let comic): try await PluginComicOpener.open(comic, router: router)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                openError = error.localizedDescription
+            }
+            if !Task.isCancelled { opening = false }
         }
     }
 
@@ -265,7 +296,7 @@ private struct UnifiedSearchCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             CoverTile {
-                CoverImage(url: item.coverURL, maxPixel: 320) {
+                CoverImage(url: item.coverURL, maxPixel: 320, resource: item.coverRequest) {
                     Image(systemName: "book.closed")
                         .font(.largeTitle).foregroundStyle(.white.opacity(0.4))
                 }

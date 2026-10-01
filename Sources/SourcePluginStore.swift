@@ -8,21 +8,29 @@ final class SourcePluginStore {
 
     private(set) var plugins: [SourcePlugin] = []
 
-    private static var fileURL: URL {
-        CentralStore.baseDir.appendingPathComponent("source-plugins.json")
-    }
+    private(set) var lastError: String?
+    private let baseDirectory: URL
+    private let validate: (String) async throws -> SourcePluginManifest
+    private let didChange: (String) -> Void
+    private var fileURL: URL { baseDirectory.appendingPathComponent("source-plugins.json") }
+    private var directory: URL { baseDirectory.appendingPathComponent("source-plugins", isDirectory: true) }
+    static var pluginDirectory: URL { CentralStore.baseDir.appendingPathComponent("source-plugins", isDirectory: true) }
 
-    static var pluginDirectory: URL {
-        CentralStore.baseDir.appendingPathComponent("source-plugins", isDirectory: true)
-    }
-
-    init() {
+    init(baseDirectory: URL = CentralStore.baseDir,
+         validate: ((String) async throws -> SourcePluginManifest)? = nil,
+         didChange: ((String) -> Void)? = nil) {
+        self.baseDirectory = baseDirectory
+        self.validate = validate ?? { try await SourcePluginRuntime.shared.manifest(for: $0) }
+        self.didChange = didChange ?? { id in
+            SourcePluginRuntime.shared.invalidate(pluginID: id)
+            CatalogAggregator.shared.invalidatePlugin(id)
+        }
         load()
     }
 
     func script(for plugin: SourcePlugin) -> String? {
         try? String(
-            contentsOf: Self.pluginDirectory.appendingPathComponent(plugin.fileName),
+            contentsOf: directory.appendingPathComponent(plugin.fileName),
             encoding: .utf8
         )
     }
@@ -36,7 +44,7 @@ final class SourcePluginStore {
     }
 
     @discardableResult
-    func install(from url: URL) async throws -> SourcePlugin {
+    func install(from url: URL, expectedID: String? = nil) async throws -> SourcePlugin {
         let normalized = Self.normalizeSourceURL(url)
         guard ["http", "https"].contains(normalized.scheme?.lowercased() ?? "") else {
             throw SourcePluginStoreError.invalidURL
@@ -51,37 +59,47 @@ final class SourcePluginStore {
             throw SourcePluginStoreError.notUTF8
         }
 
-        return try await install(script: script, sourceURL: normalized)
+        return try await install(script: script, sourceURL: normalized, expectedID: expectedID)
     }
 
     @discardableResult
-    func install(localURL url: URL) async throws -> SourcePlugin {
+    func install(localURL url: URL, expectedID: String? = nil) async throws -> SourcePlugin {
         guard url.isFileURL else { throw SourcePluginStoreError.invalidURL }
         let data = try Data(contentsOf: url)
         guard data.count <= 1_000_000 else { throw SourcePluginStoreError.tooLarge }
         guard let script = String(data: data, encoding: .utf8) else {
             throw SourcePluginStoreError.notUTF8
         }
-        return try await install(script: script, sourceURL: url)
+        return try await install(script: script, sourceURL: url, expectedID: expectedID)
     }
 
     func update(_ plugin: SourcePlugin) async throws -> SourcePlugin {
-        if plugin.sourceURL.isFileURL { return try await install(localURL: plugin.sourceURL) }
-        return try await install(from: plugin.sourceURL)
+        if plugin.sourceURL.isFileURL { return try await install(localURL: plugin.sourceURL, expectedID: plugin.id) }
+        return try await install(from: plugin.sourceURL, expectedID: plugin.id)
     }
 
     func setEnabled(_ id: String, enabled: Bool) {
         guard let index = plugins.firstIndex(where: { $0.id == id }) else { return }
-        plugins[index].enabled = enabled
-        save()
+        var candidate = plugins
+        candidate[index].enabled = enabled
+        do {
+            try persist(candidate)
+            plugins = candidate
+            lastError = nil
+            didChange(id)
+        } catch { lastError = error.localizedDescription }
     }
 
     func remove(_ plugin: SourcePlugin) {
-        try? FileManager.default.removeItem(
-            at: Self.pluginDirectory.appendingPathComponent(plugin.fileName)
-        )
-        plugins.removeAll { $0.id == plugin.id }
-        save()
+        let candidate = plugins.filter { $0.id != plugin.id }
+        do {
+            // Commit the registry first: failure must not destroy the working script.
+            try persist(candidate)
+            plugins = candidate
+            didChange(plugin.id)
+            try FileManager.default.removeItem(at: directory.appendingPathComponent(plugin.fileName))
+            lastError = nil
+        } catch { lastError = error.localizedDescription }
     }
 
     nonisolated static func makeURL(from input: String) -> URL? {
@@ -93,77 +111,55 @@ final class SourcePluginStore {
         return normalizeSourceURL(url)
     }
 
-    private func install(script: String, sourceURL: URL) async throws -> SourcePlugin {
-        let manifest = try await SourcePluginRuntime.shared.manifest(for: script)
+    @discardableResult
+    func install(script: String, sourceURL: URL, expectedID: String? = nil) async throws -> SourcePlugin {
+        guard script.utf8.count <= 1_000_000 else { throw SourcePluginStoreError.tooLarge }
+        let manifest = try await validate(script)
+        if let expectedID, manifest.id != expectedID {
+            throw SourcePluginStoreError.identityChanged(expectedID, manifest.id)
+        }
         let old = plugins.first(where: { $0.id == manifest.id })
-
-        CentralStore.ensureDirs()
-        try FileManager.default.createDirectory(
-            at: Self.pluginDirectory,
-            withIntermediateDirectories: true
+        let hash = CentralStore.sha256(script)
+        let fileName = "plugin-" + CentralStore.sha256(manifest.id) + "-" + hash + ".js"
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try script.write(to: directory.appendingPathComponent(fileName), atomically: true, encoding: .utf8)
+        var plugin = SourcePlugin(
+            id: manifest.id, name: manifest.name, version: manifest.version,
+            homepage: manifest.homepage, description: manifest.description,
+            tags: manifest.tags, capabilities: manifest.capabilities, settings: manifest.settings,
+            sourceURL: sourceURL, fileName: fileName, installedAt: Date(), enabled: old?.enabled ?? true
         )
-
-        let fileName = old?.fileName ?? ("plugin-" + safeFileName(manifest.id) + ".js")
-        try script.write(
-            to: Self.pluginDirectory.appendingPathComponent(fileName),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let plugin = SourcePlugin(
-            id: manifest.id,
-            name: manifest.name,
-            version: manifest.version,
-            homepage: manifest.homepage,
-            description: manifest.description,
-            tags: manifest.tags,
-            capabilities: manifest.capabilities,
-            settings: manifest.settings,
-            sourceURL: sourceURL,
-            fileName: fileName,
-            installedAt: Date(),
-            enabled: old?.enabled ?? true
-        )
-
-        if let index = plugins.firstIndex(where: { $0.id == plugin.id }) {
-            plugins[index] = plugin
-        } else {
-            plugins.append(plugin)
-        }
-
-        plugins.sort {
-            $0.name.localizedStandardCompare($1.name) == .orderedAscending
-        }
-        save()
+        plugin.scriptHash = hash
+        plugin.apiVersion = manifest.apiVersion
+        plugin.operationTimeoutSeconds = manifest.operationTimeoutSeconds
+        var candidate = plugins.filter { $0.id != plugin.id }
+        candidate.append(plugin)
+        candidate.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        try persist(candidate)
+        plugins = candidate
+        lastError = nil
+        didChange(plugin.id)
         return plugin
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: Self.fileURL),
-              let saved = try? JSONDecoder().decode([SourcePlugin].self, from: data)
-        else { return }
-
-        plugins = saved.filter {
-            FileManager.default.fileExists(
-                atPath: Self.pluginDirectory.appendingPathComponent($0.fileName).path
-            )
-        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            let saved = try JSONDecoder().decode([SourcePlugin].self, from: Data(contentsOf: fileURL))
+            plugins = saved
+            for index in plugins.indices {
+                if let script = script(for: plugins[index]) {
+                    plugins[index].scriptHash = CentralStore.sha256(script)
+                } else {
+                    lastError = "Installed script is missing for \(plugins[index].name). Reload it from its source."
+                }
+            }
+        } catch { lastError = "Couldn't load installed plugins: \(error.localizedDescription)" }
     }
 
-    private func save() {
-        CentralStore.ensureDirs()
-        if let data = try? JSONEncoder().encode(plugins) {
-            try? data.write(to: Self.fileURL, options: .atomic)
-        }
-    }
-
-    private func safeFileName(_ id: String) -> String {
-        let cleaned = id.replacingOccurrences(
-            of: #"[^A-Za-z0-9._-]"#,
-            with: "-",
-            options: .regularExpression
-        )
-        return cleaned.isEmpty ? UUID().uuidString : cleaned
+    private func persist(_ candidate: [SourcePlugin]) throws {
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(candidate).write(to: fileURL, options: .atomic)
     }
 
     nonisolated static func normalizeSourceURL(_ url: URL) -> URL {
@@ -187,9 +183,11 @@ enum SourcePluginStoreError: LocalizedError {
     case badResponse(Int)
     case tooLarge
     case notUTF8
+    case identityChanged(String, String)
 
     var errorDescription: String? {
         switch self {
+        case .identityChanged(let old, let new): return "Update changed plugin ID from \(old) to \(new). Install it separately instead."
         case .invalidURL: return "Enter a valid HTTP(S) plugin URL."
         case .badResponse(let code): return "Plugin server returned HTTP \(code)."
         case .tooLarge: return "Plugin file is larger than the 1 MB limit."
