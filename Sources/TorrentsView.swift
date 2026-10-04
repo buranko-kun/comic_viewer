@@ -81,7 +81,7 @@ struct TorrentsView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .pointingHandCursor()
+                .buttonStyle(PanelDoneButtonStyle())
             }
 
             if let note {
@@ -91,8 +91,9 @@ struct TorrentsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
     }
 
     private var summary: String {
@@ -153,6 +154,7 @@ struct TorrentsView: View {
 
 /// Reusable toolbar button for the torrent panel.
 struct TorrentQueueButton: View {
+    var showLabel = false
     @State private var manager = TorrentManager.shared
     @State private var showTorrents = false
 
@@ -160,6 +162,7 @@ struct TorrentQueueButton: View {
         Button {
             showTorrents = true
         } label: {
+            HStack(spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .overlay(alignment: .topTrailing) {
                     if manager.activeCount > 0 {
@@ -172,6 +175,9 @@ struct TorrentQueueButton: View {
                             .offset(x: 8, y: -8)
                     }
                 }
+                if showLabel { Text("Torrents"); Spacer(minLength: 0) }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
         .help(manager.activeCount > 0 ? "\(manager.activeCount) active torrent\(manager.activeCount == 1 ? "" : "s")" : "Torrents")

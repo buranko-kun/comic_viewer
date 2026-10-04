@@ -30,7 +30,6 @@ struct BrowseView: View {
     /// feedback so the grid never just freezes).
     @State private var isFiltering = false
     @State private var keyMonitor = KeyMonitor()
-    @State private var swipeBack = SwipeBackDetector()
     /// Multi-select mode: tapping toggles selection instead of opening the page.
     @State private var selecting = false
     @State private var selectedIDs: Set<String> = []
@@ -108,11 +107,11 @@ struct BrowseView: View {
         .sheet(item: $recoveryPlugin) { SourcePluginSessionSheet(plugin: $0) }
         .sheet(item: $pendingNewCollectionItem) { NewCollectionSheet(item: $0) }
         .onAppear {
-            swipeBack.onBack = { back() }
-            keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
+            keyMonitor.start(key: handleKey)
             if !aggregator.loadedOnce { Task { await aggregator.loadRoots() } }
         }
         .onDisappear { keyMonitor.stop(); searchDebounce?.cancel(); cancelChild() }
+        .onReceive(NotificationCenter.default.publisher(for: .browseBack)) { _ in back() }
         .onChange(of: browseState.invalidationRevision) { _, _ in cancelChild(); childError = nil }
         // Debounce typing: the field updates instantly, but filtering waits until you pause so a
         // large catalog isn't rescanned per keystroke. Clearing the field applies immediately.
@@ -335,75 +334,42 @@ struct BrowseView: View {
 
     private var topBar: some View {
         @Bindable var browseState = browseState
-        return HStack(spacing: 14) {
-            if !browseState.stack.isEmpty {
-                Button { back() } label: { Label("Back", systemImage: "chevron.left") }
-                    .pointingHandCursor()
+        return SectionToolbar {
+            HStack(spacing: 10) {
+                if !browseState.stack.isEmpty {
+                    Button { back() } label: { Image(systemName: "chevron.left") }.help("Back to previous catalog")
+                }
+                SectionHeading(
+                    title: browseState.stack.isEmpty ? "Online" : levelTitle,
+                    detail: countSummary
+                )
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                // At the top level show the generic Online section name; drilled in, the folder name.
-                if browseState.stack.isEmpty {
-                    Text("Online").font(.headline).foregroundStyle(.white)
+        } search: {
+            NavigationSearchField(prompt: browseState.stack.isEmpty ? "Search online catalogs" : "Search this catalog", text: $browseState.searchText)
+        } actions: {
+            HStack(spacing: 12) {
+                if selecting {
+                    Button("Open \(selectedIDs.count)") { openSelected() }.disabled(selectedIDs.isEmpty)
+                    Button("Done") { exitSelection() }
                 } else {
-                    Text(levelTitle).font(.headline).foregroundStyle(.white).lineLimit(1)
-                }
-                Text(countSummary).font(.caption2).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
-            }
-            Spacer()
-            Button { router.showLibrary() } label: {
-                Label("Home", systemImage: "house")
-            }
-            .labelStyle(.iconOnly).help("Home").pointingHandCursor()
-            Button { router.showLocal() } label: {
-                Label("Local", systemImage: "internaldrive")
-            }
-            .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
-            if selecting {
-                Button { openSelected() } label: { Label("Open \(selectedIDs.count)", systemImage: "safari") }
-                    .disabled(selectedIDs.isEmpty).pointingHandCursor()
-                Button("Done") { exitSelection() }.pointingHandCursor()
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
-                    TextField("Search", text: $browseState.searchText).textFieldStyle(.plain).frame(width: 180)
-                    if !browseState.searchText.isEmpty {
-                        Button { browseState.searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.5))
+                    Menu {
+                        Toggle("Must-read only", isOn: $browseState.mustReadOnly)
+                        Picker("Sort", selection: $browseState.sortMode) {
+                            Text("Title A–Z").tag(SortMode.title)
+                            Text("Year (newest)").tag(SortMode.yearDesc)
                         }
-                        .buttonStyle(.plain).help("Clear search").pointingHandCursor()
-                    }
+                        Divider()
+                        Button("Select comics") { selecting = true }
+                        Button("Search all loaded catalogs") { router.showOnlineSearch(query: browseState.searchText) }
+                    } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
+                    .menuIndicator(.hidden).help("Filter, sort, and selection")
+                    Button {
+                        if let current = browseState.stack.last { reopen(current) }
+                        else { Task { await aggregator.loadRoots(refresh: true) } }
+                    } label: { Image(systemName: "arrow.clockwise") }.help("Refresh catalog")
                 }
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(.white.opacity(0.08), in: Capsule())
-                Button { browseState.mustReadOnly.toggle() } label: {
-                    Image(systemName: browseState.mustReadOnly ? "star.fill" : "star")
-                        .foregroundStyle(browseState.mustReadOnly ? .yellow : .white)
-                }
-                .help("Show must-read essentials only").pointingHandCursor()
-                Menu {
-                    Picker("Sort", selection: $browseState.sortMode) {
-                        Label("Title A–Z", systemImage: "textformat").tag(SortMode.title)
-                        Label("Year (newest)", systemImage: "calendar").tag(SortMode.yearDesc)
-                    }
-                } label: { Image(systemName: "arrow.up.arrow.down") }
-                .menuIndicator(.hidden).fixedSize()
-                .help("Sort order").pointingHandCursor()
-                Button { selecting = true } label: { Image(systemName: "checkmark.circle") }
-                    .help("Select comics").pointingHandCursor()
-                DownloadQueueButton()
-                TorrentQueueButton()
-                Button { router.showCollections() } label: { Image(systemName: "rectangle.stack") }
-                    .help("Collections").pointingHandCursor()
-                Button { if let current = browseState.stack.last { reopen(current) } else { Task { await aggregator.loadRoots(refresh: true) } } } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Refresh catalog").pointingHandCursor()
-                SettingsLink { Image(systemName: "gearshape") }.help("Settings").pointingHandCursor()
             }
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 30).padding(.vertical, 10)
-        .background(Color.black)
     }
 
     // MARK: Actions
@@ -471,16 +437,7 @@ struct BrowseView: View {
     private func back() {
         cancelChild(); childError = nil
         if selecting { exitSelection(); return }
-        // Leaving a drilled folder clears that level's search + scroll; leaving Online for the
-        // Library keeps everything so returning restores the exact spot.
-        withAnimation(AppRouter.backSlide) {
-            if browseState.stack.isEmpty {
-                router.showLibrary()
-            } else {
-                browseState.clearSearch(); browseState.resetScroll()
-                browseState.stack.removeLast()
-            }
-        }
+        router.escapeBack()
     }
 
     /// Tap a remote card. Plugins can turn cards into sub-catalogs or stream their page images
@@ -549,6 +506,7 @@ final class BrowseState {
 
     /// Folders drilled into (each a fetched sub-catalog). Empty = the aggregated home.
     var stack: [RemoteCatalog] = []
+    var returnToSearch = false
     var revision = 0
     var invalidationRevision = 0
 

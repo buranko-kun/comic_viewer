@@ -163,7 +163,7 @@ final class ArchiveOpener {
                 comicKey: CentralStore.key(for: archive),
                 legacyStateURLs: [legacy],
                 initialImage: nil,
-                start: startIndex
+                start: plan.startIndex
             )
             return
         }
@@ -267,7 +267,7 @@ final class ArchiveOpener {
     private nonisolated static func planStreamedArchive(
         _ archive: URL,
         startIndex: Int?
-    ) -> (dir: URL, pages: [(url: URL, entry: String)])? {
+    ) -> (dir: URL, pages: [(url: URL, entry: String)], startIndex: Int)? {
         guard let listing = ArchiveExtractor.list(archive) else { return nil }
 
         // Only stream ZIP-family archives: 7zz can seek to any entry cheaply. RAR/7z/solid
@@ -312,13 +312,14 @@ final class ArchiveOpener {
             return matches.count == 1 ? matches[0] : nil
         }
 
-        let startIdx = startIndex ?? state?.lastPage.flatMap { last in
+        let requestedStartIdx = startIndex ?? state?.lastPage.flatMap { last in
             entry(forStoredKey: last).flatMap {
                 imageEntries.firstIndex(of: $0)
             }
         } ?? 0
+        let safeStartIdx = min(max(requestedStartIdx, 0), imageEntries.count - 1)
 
-        for i in [startIdx, startIdx + 1] where imageEntries.indices.contains(i) {
+        for i in [safeStartIdx, safeStartIdx + 1] where imageEntries.indices.contains(i) {
             priority.append(imageEntries[i])
         }
 
@@ -361,12 +362,32 @@ final class ArchiveOpener {
             return nil
         }
 
-        guard ArchiveExtractor.fileSize(pages[0].url) > 0,
-              ArchiveExtractor.fileSize(pages[startIdx].url) > 0 else {
+        // Archives sometimes contain a truncated file with an image extension at the front.
+        // A non-zero file size is not enough to make it a readable page. Start at the first
+        // decodable page from the requested/resume position so one bad cover cannot make the
+        // entire comic appear unreadable.
+        var readableStartIndex: Int?
+        for candidate in safeStartIdx..<imageEntries.count {
+            let page = pages[candidate]
+            if ArchiveExtractor.fileSize(page.url) == 0 {
+                ArchiveExtractor.extractEntries(archive, [page.entry], into: dir)
+            }
+            if ImageLoader.probe(page.url) != nil {
+                readableStartIndex = candidate
+                break
+            }
+            ReaderPerformance.event("archive_stream unreadable_page entry=\(page.entry)")
+            guard !Task.isCancelled else {
+                try? FileManager.default.removeItem(at: dir)
+                return nil
+            }
+        }
+
+        guard let readableStartIndex else {
             try? FileManager.default.removeItem(at: dir)
             return nil
         }
 
-        return (dir, pages)
+        return (dir, pages, readableStartIndex)
     }
 }

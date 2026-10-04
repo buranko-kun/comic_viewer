@@ -117,7 +117,7 @@ final class DownloadManager {
                 if Task.isCancelled { return }   // job cancelled → cancel() already removed it
                 setStatus(id, .downloading(nil))
                 do {
-                    _ = try await Self.perform(from: url, title: item.title,
+                    let downloadedURL = try await Self.perform(from: url, title: item.title,
                                                  destinationFolder: destinationFolder, referrer: item.page.flatMap(URL.init(string:))) { frac in
                         Task { @MainActor in
                             if self.generations[id] == generation, case .downloading = self.status(forItem: id) {
@@ -126,6 +126,11 @@ final class DownloadManager {
                         }
                     }
                     guard !Task.isCancelled, generations[id] == generation else { return }
+                    if ArchiveExtractor.isArchive(downloadedURL), ArchiveExtractor.hasImageEntries(downloadedURL) {
+                        Task.detached(priority: .utility) {
+                            _ = await ArchiveCover.preserveThumbnail(for: downloadedURL)
+                        }
+                    }
                     setStatus(id, .done)
                     let destinationMessage = DownloadDestinationStore.shared.isCustom
                         ? "Downloaded: \(item.title)"

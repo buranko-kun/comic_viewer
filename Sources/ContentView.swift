@@ -21,6 +21,7 @@ struct ContentView: View {
     // Zoom & pan (screen-space transform over the fitted image).
     @State private var zoom: CGFloat = 1
     @State private var showSlowPageLoading = false
+    @State private var readerNavigationVisible = false
     @State private var pan: CGSize = .zero
     @GestureState private var dragOffset: CGSize = .zero
     @State private var containerSize: CGSize = .zero
@@ -53,11 +54,15 @@ struct ContentView: View {
     // Chapter thumbnail grid (toggled with T).
     @State private var showChapterGrid = false
     @State private var chapterGridPage = 0
+    @State private var confirmDeleteReadChapters = false
+    @State private var isTrimmingArchive = false
+    @State private var archiveEditError: String?
     @State private var thumbnailTask: Task<Void, Never>?
     private let thumbCache = ThumbnailCache.shared
 
     // End-of-chapter continuation card.
     @State private var upNextThumbnail: CGImage?
+    @State private var upNextIssueThumbnail: CGImage?
 
     private struct UpNextChapter: Hashable {
         let ordinal: Int
@@ -200,6 +205,26 @@ struct ContentView: View {
             .task {
                 preloadChapterThumbs()
             }
+            .confirmationDialog(
+                deleteReadTitle,
+                isPresented: $confirmDeleteReadChapters,
+                titleVisibility: .visible
+            ) {
+                Button(deleteReadButtonTitle, role: .destructive) {
+                    deleteReadChapters()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(deleteReadMessage)
+            }
+            .alert("Couldn’t trim archive", isPresented: Binding(
+                get: { archiveEditError != nil },
+                set: { if !$0 { archiveEditError = nil } }
+            )) {
+                Button("OK", role: .cancel) { archiveEditError = nil }
+            } message: {
+                Text(archiveEditError ?? "")
+            }
     }
 
     private var readerEvents: some View {
@@ -213,6 +238,19 @@ struct ContentView: View {
     private var readerSurface: some View {
         readerContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topLeading) {
+                Button { router.escapeBack() } label: {
+                    Label("Back", systemImage: "chevron.left")
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(.black.opacity(0.75), in: Capsule())
+                }
+                .buttonStyle(.plain).foregroundStyle(.white)
+                .help("Return to where you opened this comic (Esc)")
+                .opacity(readerNavigationVisible ? 1 : 0)
+                .frame(width: 130, height: 56)
+                .contentShape(Rectangle())
+                .onHover { readerNavigationVisible = $0 }
+            }
             .overlay { pinnedOverlays }
             .overlay { rotatedToRead { readingProgressBar } }
             .overlay { upNextOverlay }
@@ -283,11 +321,20 @@ struct ContentView: View {
     }
 
     private func preloadUpNextThumbnail() async {
-        guard let url = upNextChapter?.url else {
+        if let url = upNextChapter?.url {
+            upNextThumbnail = await thumbCache.thumbnail(for: url, maxPixel: 240)
+        } else {
             upNextThumbnail = nil
+        }
+
+        guard let comic = upNextIssue else {
+            upNextIssueThumbnail = nil
             return
         }
-        upNextThumbnail = await thumbCache.thumbnail(for: url, maxPixel: 240)
+        var cover = comic.coverURL
+        if cover == nil, comic.isArchive { cover = await ArchiveCover.make(for: comic.url) }
+        if let cover { upNextIssueThumbnail = await thumbCache.thumbnail(for: cover, maxPixel: 240) }
+        else { upNextIssueThumbnail = nil }
     }
 
     private func updateReaderState() {
@@ -709,7 +756,70 @@ struct ContentView: View {
 
     @ViewBuilder
     private var upNextOverlay: some View {
-        if let next = upNextChapter {
+        if let nextIssue = upNextIssue {
+            rotatedToRead {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button { router.openNextIssue(nextIssue) } label: {
+                            HStack(spacing: 12) {
+                                Group {
+                                    if let cg = upNextIssueThumbnail {
+                                        Image(decorative: cg, scale: 1)
+                                            .resizable()
+                                            .interpolation(.medium)
+                                            .scaledToFill()
+                                    } else {
+                                        Image(systemName: "book.closed.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(.white.opacity(0.45))
+                                    }
+                                }
+                                .frame(width: 52, height: 74)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Up Next")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                        .textCase(.uppercase)
+                                    Text(nextIssue.title)
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                        .lineLimit(2)
+                                    Text("Next issue in \(nextIssue.series)")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.55))
+                                        .lineLimit(1)
+                                    Label("Continue", systemImage: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.top, 2)
+                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.45))
+                                    .padding(.leading, 2)
+                            }
+                            .padding(14)
+                            .frame(width: 350, alignment: .leading)
+                            .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                            }
+                            .shadow(radius: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .pointingHandCursor()
+                    }
+                    .padding(.trailing, 58)
+                    .padding(.bottom, 78)
+                }
+            }
+        } else if let next = upNextChapter {
             rotatedToRead {
                 VStack {
                     Spacer()
@@ -895,6 +1005,21 @@ struct ContentView: View {
             }
     }
 
+    private var upNextIssue: Comic? {
+        guard model.current != nil,
+              model.items.indices.contains(model.index),
+              model.index == model.items.count - 1,
+              let current = currentLibraryComic else { return nil }
+        let parent = current.url.deletingLastPathComponent().standardizedFileURL
+        let comics = library.comics
+            .filter { $0.url.deletingLastPathComponent().standardizedFileURL == parent }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        let currentKey = CentralStore.key(for: current.url)
+        guard let index = comics.firstIndex(where: { CentralStore.key(for: $0.url) == currentKey }),
+              comics.indices.contains(index + 1) else { return nil }
+        return comics[index + 1]
+    }
+
     private func currentComicKeyForTimeline(_ comic: Comic) -> String {
         CentralStore.key(for: comic.url)
     }
@@ -992,9 +1117,127 @@ struct ContentView: View {
                 }
             },
             onRename: { index, name in model.renameChapter(atIndex: index, to: name) },
-            onDelete: { index in model.deleteChapter(atIndex: index) }
+            onDelete: { index in model.deleteChapter(atIndex: index) },
+            previousPageCount: pagesBeforeCurrent,
+            onDeletePrevious: canTrimCurrentArchive ? {
+                confirmDeleteReadChapters = true
+            } : nil
         )
+        .overlay {
+            if isTrimmingArchive {
+                ZStack {
+                    Color.black.opacity(0.72)
+                    VStack(spacing: 12) {
+                        ProgressView().tint(.white)
+                        Text("Preparing trimmed archive…")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(24)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+        }
         .transition(.opacity)
+    }
+
+    private var pageRangeBeforeCurrent: Range<Int>? {
+        guard model.index > 0, model.index < model.items.count else { return nil }
+        return 0..<model.index
+    }
+
+    private var pagesBeforeCurrent: Int { pageRangeBeforeCurrent?.count ?? 0 }
+
+    private var canTrimCurrentArchive: Bool {
+        guard let key = model.currentComicKey, let range = pageRangeBeforeCurrent,
+              range.count > 0, model.items.count > range.count else { return false }
+        let url = URL(fileURLWithPath: key)
+        return url.isFileURL && ["cbz", "cbr"].contains(url.pathExtension.lowercased())
+    }
+
+    private var deleteReadTitle: String {
+        "Delete \(pagesBeforeCurrent) page\(pagesBeforeCurrent == 1 ? "" : "s") before this page?"
+    }
+
+    private var deleteReadButtonTitle: String {
+        "Delete \(pagesBeforeCurrent) previous page\(pagesBeforeCurrent == 1 ? "" : "s")"
+    }
+
+    private var deleteReadMessage: String {
+        guard let key = model.currentComicKey else { return "This cannot be undone." }
+        if URL(fileURLWithPath: key).pathExtension.lowercased() == "cbr" {
+            return "Every page before the current page will be removed, including the cover and front matter. This page and everything after it will remain. The app will create a trimmed CBZ, then delete the original CBR."
+        }
+        return "Every page before the current page will be removed, including the cover and front matter. This page and everything after it will remain. The original CBZ will be deleted after the trimmed archive is verified."
+    }
+
+    private func deleteReadChapters() {
+        guard canTrimCurrentArchive,
+              let key = model.currentComicKey,
+              let range = pageRangeBeforeCurrent,
+              model.items.indices.contains(model.index) else { return }
+        let archive = URL(fileURLWithPath: key).standardizedFileURL
+        let oldIndex = model.index
+        let pagesToRemove = Array(model.items[range])
+        let currentPage = model.items[oldIndex]
+
+        isTrimmingArchive = true
+        Task { @MainActor in
+            defer { isTrimmingArchive = false }
+            let mappedPaths = await ArchiveSessionManager.shared.entryPaths(
+                for: pagesToRemove + [currentPage],
+                in: archive
+            )
+            guard let mappedPaths, mappedPaths.count == pagesToRemove.count + 1 else {
+                archiveEditError = "Could not map the pages in the open archive. Reopen it and try again."
+                return
+            }
+
+            guard await ArchiveCover.preserveThumbnail(for: archive) else {
+                archiveEditError = "Could not save the comic cover thumbnail, so no pages were deleted."
+                return
+            }
+
+            model.flushCurrentState()
+            var savedState = CentralStore.loadState(forKey: CentralStore.key(for: archive)) ?? ComicState()
+            await ArchiveSessionManager.shared.remove(archive)
+
+            do {
+                let removedEntries = Set(mappedPaths.dropLast())
+                let currentEntry = mappedPaths[mappedPaths.count - 1]
+                let result = try await ArchiveChapterEditor.trim(
+                    archive: archive,
+                    removing: removedEntries
+                )
+                ArchiveCover.copyPreservedThumbnail(from: archive, to: result.archiveURL)
+
+                savedState.chapters.removeAll { removedEntries.contains($0) }
+                savedState.chapterNames = savedState.chapterNames.filter {
+                    !removedEntries.contains($0.key)
+                }
+                savedState.lastPage = currentEntry
+                savedState.lastIndex = max(0, oldIndex - pagesToRemove.count)
+                savedState.pageCount = result.remainingPageCount
+                savedState.path = CentralStore.key(for: result.archiveURL)
+                savedState.lastReadAt = Date()
+                let stateKey = CentralStore.key(for: result.archiveURL)
+                if let data = try? JSONEncoder().encode(savedState) {
+                    try data.write(to: CentralStore.stateURL(for: stateKey), options: .atomic)
+                }
+
+                LibraryModel.shared.rescan()
+                model.open(urls: [result.archiveURL], startIndex: max(0, oldIndex - pagesToRemove.count))
+                showChapterGrid = false
+                if let retainedOriginal = result.retainedOriginalURL {
+                    flashToast("Trimmed, but couldn’t remove original: \(retainedOriginal.lastPathComponent)")
+                } else {
+                    flashToast("Deleted \(result.removedPageCount) pages · original removed")
+                }
+            } catch {
+                model.open(urls: [archive], startIndex: oldIndex)
+                archiveEditError = error.localizedDescription
+            }
+        }
     }
 
     // MARK: Transient overlays

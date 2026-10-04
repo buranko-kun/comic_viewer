@@ -62,6 +62,7 @@ final class AppModel {
     func jumpToChapter(orderedIndex: Int) { reader.jumpToChapter(orderedIndex: orderedIndex) }
     func renameChapter(atIndex i: Int, to name: String) { reader.renameChapter(atIndex: i, to: name) }
     func deleteChapter(atIndex i: Int) { reader.deleteChapter(atIndex: i) }
+    func flushCurrentState() { reader.flushState() }
 
     // MARK: Opening
 

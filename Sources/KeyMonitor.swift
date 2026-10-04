@@ -24,36 +24,3 @@ final class KeyMonitor {
         monitor = nil
     }
 }
-
-/// Detects a two-finger horizontal "swipe right to go back" on the trackpad, like a web browser,
-/// and calls `onBack` once per gesture. Feed it scroll events (see `KeyMonitor`'s `scroll:`); it
-/// returns true to consume the event when it fires. Only precise (trackpad) gestures count, and
-/// the motion must be clearly horizontal so vertical scrolling is never mistaken for a swipe.
-final class SwipeBackDetector {
-    var onBack: () -> Void = {}
-    private var accX: CGFloat = 0
-    private var accY: CGFloat = 0
-    private var fired = false
-    private let threshold: CGFloat = 55
-
-    func handle(_ e: NSEvent) -> Bool {
-        guard e.hasPreciseScrollingDeltas else { return false }
-        switch e.phase {
-        case .began:
-            accX = 0; accY = 0; fired = false
-        case .changed:
-            accX += e.scrollingDeltaX
-            accY += e.scrollingDeltaY
-            if !fired, accX > threshold, abs(accX) > abs(accY) * 1.5 {
-                fired = true
-                onBack()
-                return true
-            }
-        case .ended, .cancelled:
-            fired = false
-        default:
-            break
-        }
-        return false
-    }
-}

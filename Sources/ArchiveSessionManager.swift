@@ -1,5 +1,19 @@
 import Foundation
 
+private struct ArchiveFingerprint: Equatable, Sendable {
+    let size: Int64
+    let modifiedAt: Date
+
+    init?(archive: URL) {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: archive.path),
+              let size = attributes[.size] as? NSNumber,
+              let modifiedAt = attributes[.modificationDate] as? Date
+        else { return nil }
+        self.size = size.int64Value
+        self.modifiedAt = modifiedAt
+    }
+}
+
 /// Owns temporary archive extraction sessions for the whole app.
 ///
 /// A session contains the extracted directory, the ordered page URLs visible to the reader,
@@ -11,6 +25,15 @@ actor ArchiveSessionManager {
         let dir: URL
         let items: [URL]
         let streamer: ArchiveStreamer?
+        fileprivate let archiveFingerprint: ArchiveFingerprint?
+
+        init(archive: URL, dir: URL, items: [URL], streamer: ArchiveStreamer?) {
+            self.archive = archive
+            self.dir = dir
+            self.items = items
+            self.streamer = streamer
+            self.archiveFingerprint = ArchiveFingerprint(archive: archive)
+        }
     }
 
     static let shared = ArchiveSessionManager()
@@ -25,14 +48,37 @@ actor ArchiveSessionManager {
     func session(for archive: URL) async -> Session? {
         let key = CentralStore.key(for: archive)
         guard let session = sessions[key] else { return nil }
-        guard FileManager.default.fileExists(atPath: session.dir.path) else {
+        let archiveChanged = session.archiveFingerprint != ArchiveFingerprint(archive: archive)
+        let extractionMissing = !FileManager.default.fileExists(atPath: session.dir.path)
+        guard !archiveChanged, !extractionMissing else {
             sessions.removeValue(forKey: key)
             order.removeAll { $0 == key }
+            if currentKey == key { currentKey = nil }
             await session.streamer?.cancel()
+            try? FileManager.default.removeItem(at: session.dir)
+            ReaderPerformance.event(
+                archiveChanged
+                    ? "archive_session invalidated changed_archive"
+                    : "archive_session invalidated missing_extraction"
+            )
             return nil
         }
         touch(key)
         return session
+    }
+
+    /// Resolve streamed/extracted page URLs back to their archive-relative paths.
+    func entryPaths(for pages: [URL], in archive: URL) async -> [String]? {
+        guard let session = await session(for: archive) else { return nil }
+        let root = session.dir.standardizedFileURL.path + "/"
+        var paths: [String] = []
+        paths.reserveCapacity(pages.count)
+        for page in pages {
+            let path = page.standardizedFileURL.path
+            guard path.hasPrefix(root) else { return nil }
+            paths.append(String(path.dropFirst(root.count)))
+        }
+        return paths
     }
 
     /// Begin an archive open identified by the reader's generation.

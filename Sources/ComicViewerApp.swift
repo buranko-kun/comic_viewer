@@ -42,9 +42,11 @@ struct ComicViewerApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("Open…") { openImages() }
                     .keyboardShortcut("o", modifiers: .command)
-                Button("Library") { router.showLibrary() }
+                Button("Home") { router.showHome() }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Library") { router.showLocal() }
                     .keyboardShortcut("l", modifiers: .command)
-                Button("Browse Online") { router.showBrowse() }
+                Button("Online") { router.showOnlineRoot() }
                     .keyboardShortcut("b", modifiers: .command)
                 Button("Collections") { router.showCollections() }
                     .keyboardShortcut("k", modifiers: .command)
@@ -54,6 +56,19 @@ struct ComicViewerApp: App {
                     .keyboardShortcut("/", modifiers: .command)
             }
             CommandMenu("Go") {
+                Button("Toggle Sidebar") { NotificationCenter.default.post(name: .toggleNavigationSidebar, object: nil) }
+                    .keyboardShortcut("s", modifiers: [.command, .control])
+                    .disabled(router.route == .reader)
+                Divider()
+                Button("Back") {
+                    if router.route == .browse { NotificationCenter.default.post(name: .browseBack, object: nil) }
+                    else { router.escapeBack() }
+                }
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Find") { NotificationCenter.default.post(name: .focusNavigationSearch, object: nil) }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(router.route == .reader)
+                Divider()
                 Button("Next") { model.next() }
                     .keyboardShortcut(.rightArrow, modifiers: .command)
                 Button("Previous") { model.prev() }

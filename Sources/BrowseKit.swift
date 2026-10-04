@@ -4,23 +4,23 @@ import CoreGraphics
 /// Shared look-and-feel for every cover grid in the app — Library, Online catalogs, and Collections.
 /// Centralizing the *visual* layer here keeps all grids
 /// pixel-identical and gives one place to tune them. (Behavior-only helpers — `RemoteImageCache`,
-/// `ThumbnailCache`, `KeyMonitor`, `SwipeBackDetector` — are already shared and used directly.)
+/// `ThumbnailCache` and `KeyMonitor` are already shared and used directly.)
 
 /// The single source of truth for grid metrics: card size, spacing, padding, corner radius.
 enum GridStyle {
-    static let tileTarget: CGFloat = 180    // ideal card width that drives the column count
+    static let tileTarget: CGFloat = 200    // shared comic-cover width in grids and shelves
     static let spacing: CGFloat = 20        // gap between columns
     static let rowSpacing: CGFloat = 24     // gap between rows
     static let hPadding: CGFloat = 30       // grid horizontal inset
-    static let shelfWidth: CGFloat = 170    // fixed width for horizontal shelf cards
+    static let shelfWidth: CGFloat = tileTarget
     static let corner: CGFloat = 8          // cover corner radius
     static let panel = Color.white.opacity(0.06)   // faint cover backing panel
     static let hairline = Color.white.opacity(0.12) // default cover border
 
-    /// Flexible columns that fit `width` at ~`target` pt each — the formula every grid uses.
+    /// Fixed-width columns that fit inside the shared horizontal inset.
     static func columns(_ width: CGFloat, target: CGFloat = tileTarget) -> [GridItem] {
         let count = max(1, Int((width - hPadding * 2 + spacing) / (target + spacing)))
-        return Array(repeating: GridItem(.flexible(), spacing: spacing), count: count)
+        return Array(repeating: GridItem(.fixed(target), spacing: spacing), count: count)
     }
 }
 
@@ -345,7 +345,9 @@ where Item.ID == String {
                     }
                     .frame(height: 0).id(topID)
                     header()
-                    LazyVGrid(columns: cols, alignment: .center, spacing: GridStyle.rowSpacing) {
+                    // The columns are fixed width, so centering the grid shifts the first cover
+                    // away from the same left guide used by the toolbar and section headings.
+                    LazyVGrid(columns: cols, alignment: .leading, spacing: GridStyle.rowSpacing) {
                         if lo == 0 { leading() }
                         ForEach(slice) { item in
                             cell(item).id(item.id)
@@ -408,4 +410,84 @@ struct GridScrollOffsetKey: PreferenceKey {
 struct GridContentHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// Equal side columns keep search centered regardless of title length or action count.
+struct SectionToolbar<Location: View, Search: View, Actions: View>: View {
+    @ViewBuilder var location: () -> Location
+    @ViewBuilder var search: () -> Search
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(0, geometry.size.width - GridStyle.hPadding * 2)
+            let searchWidth = min(360, width * 0.38)
+            let sideWidth = max(0, (width - searchWidth - 24) / 2)
+            HStack(spacing: 12) {
+                location().lineLimit(1).frame(width: sideWidth, alignment: .leading).clipped()
+                search().frame(width: searchWidth)
+                actions().frame(width: sideWidth, alignment: .trailing)
+            }
+            .frame(maxHeight: .infinity)
+            .padding(.horizontal, GridStyle.hPadding)
+        }
+        .frame(height: 50)
+        .buttonStyle(.borderless)
+        .tint(.white)
+        .background(Color.black)
+        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.1)).frame(height: 1) }
+    }
+}
+
+/// Shared one-line section label: title on the left, its count or context on the right.
+struct SectionHeading: View {
+    let title: String
+    var detail: String? = nil
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let detail {
+                Spacer(minLength: 4)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+    }
+}
+
+struct NavigationSearchField: View {
+    let prompt: String
+    @Binding var text: String
+    var submit: () -> Void = {}
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain).focused($focused).onSubmit(submit)
+                .accessibilityLabel(prompt)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Clear search")
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .onReceive(NotificationCenter.default.publisher(for: .focusNavigationSearch)) { _ in focused = true }
+    }
+}
+
+extension Notification.Name {
+    static let toggleNavigationSidebar = Notification.Name("toggleNavigationSidebar")
+    static let sidebarDidNavigate = Notification.Name("sidebarDidNavigate")
+    static let browseBack = Notification.Name("browseBack")
+    static let focusNavigationSearch = Notification.Name("focusNavigationSearch")
 }

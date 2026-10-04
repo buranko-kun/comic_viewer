@@ -15,11 +15,10 @@ struct LibraryView: View {
     @Environment(AppRouter.self) private var router
 
     private let coverCache = ThumbnailCache.shared
-    private let store = CollectionStore.shared
     @State private var keyMonitor = KeyMonitor()
-    @State private var swipeBack = SwipeBackDetector()
     @State private var pendingNewCollectionItem: CollectionItem?
     @State private var pendingDelete: Comic?
+    @State private var pendingReset: Comic?
     // Chapters of the currently opened comic, loaded async (archives need extraction).
     @State private var chapterRefs: [ChapterRef] = []
     @State private var loadingChapters = false
@@ -27,11 +26,21 @@ struct LibraryView: View {
     @State private var renamingChapter: ChapterRef?
     @State private var chapterRenameText = ""
     @State private var historyRefresh = 0
-    @State private var onlineSearchText = ""
-    @State private var localSearchText = ""
+
+    private var localSearchText: String {
+        get { router.localQuery }
+        nonmutating set { router.localQuery = newValue }
+    }
     @State private var localFilter: LocalFilter = .all
     @State private var localSort: LocalSort = .title
     @State private var pendingTorrentSource: URL?
+
+    private var homeSmartCollections: [(kind: SmartCollectionKind, comics: [Comic])] {
+        SmartCollectionKind.allCases.compactMap { kind in
+            let comics = kind.comics(in: library).filter { !$0.isRemote }
+            return comics.isEmpty ? nil : (kind, comics)
+        }
+    }
 
     private enum LocalFilter: String, CaseIterable, Identifiable {
         case all
@@ -95,10 +104,7 @@ struct LibraryView: View {
 
     private var isPortrait: Bool { router.libraryPortrait }
 
-    /// Target thumbnail width. The grid fits as many columns of ~this width as it can and lets
-    /// them stretch equally to fill the row, so gaps are uniform and there's no leftover on the
-    /// right (the `.adaptive` fixed-width approach left-aligns and dumps the slack on one side).
-    // Grid metrics come from the app-wide `GridStyle` so every grid matches.
+    /// Shared cover width and insets keep section headings, cards, and controls on the same guides.
     private static let cardWidth = GridStyle.shelfWidth
     private static let gridSpacing = GridStyle.spacing
     private static let gridHPadding = GridStyle.hPadding
@@ -113,7 +119,7 @@ struct LibraryView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     if let header { header.padding(.top, 60) }
-                    LazyVGrid(columns: cols, alignment: .center, spacing: 24) {
+                    LazyVGrid(columns: cols, alignment: .leading, spacing: 24) {
                         content()
                     }
                     .padding(.horizontal, Self.gridHPadding)
@@ -136,6 +142,11 @@ struct LibraryView: View {
             }
         }
         .sheet(item: $pendingNewCollectionItem) { NewCollectionSheet(item: $0) }
+        .sheet(item: $pendingReset) { comic in
+            ResetReadingSheet(comic: comic) { removeChapters in
+                library.resetState(comic, removingChapters: removeChapters)
+            }
+        }
         .sheet(item: $pendingDelete) { comic in
             DeleteComicSheet(comic: comic,
                              onCancel: { pendingDelete = nil },
@@ -153,8 +164,7 @@ struct LibraryView: View {
             }
         }
         .onAppear {
-            swipeBack.onBack = { router.escapeBack() }
-            keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
+            keyMonitor.start(key: handleKey)
         }
         .onDisappear { keyMonitor.stop() }
         .onAppear { historyRefresh += 1 }
@@ -178,7 +188,7 @@ struct LibraryView: View {
         } else if let comic = router.selectedComic {
             chapterGrid(comic: comic)
         } else if localOnly {
-            localGrid
+            folderGrid
         } else {
             folderGrid
         }
@@ -312,55 +322,42 @@ struct LibraryView: View {
     /// The current folder level: sub-folder groups (series / sub-series) to drill into,
     /// followed by the comics that live directly here. Mirrors the on-disk folder tree.
     private var folderGrid: some View {
-        let entries = library.entries(at: router.currentDir)
-        let atHome = router.currentDir == nil
-        let recents = atHome ? library.continueReading : []
-        let recentlyRead = atHome ? library.recentlyRead : []
-        let cols = atHome ? store.collections.filter { !$0.items.isEmpty } : []
-        let hasShelves = !recents.isEmpty || !recentlyRead.isEmpty || !cols.isEmpty
+        let candidates = localOnly ? filteredLocalComics : library.comics
+        let entries = library.entries(at: router.currentDir, matching: candidates)
+        let atRoot = router.currentDir == nil
+        let atHome = atRoot && !localOnly
+        let smartCollections = atHome ? homeSmartCollections : []
+        let hasShelves = !smartCollections.isEmpty
+        let visibleIssues = localOnly ? localSortComics(entries.comics) : entries.comics
         let _ = historyRefresh
-        return comicGrid(header: hasShelves ? AnyView(homeHeader(recents, recentlyRead, cols)) : nil) {
+        return comicGrid(header: hasShelves ? AnyView(homeHeader(smartCollections)) : nil) {
             ForEach(entries.groups) { group in
                 GroupCard(group: group, cache: coverCache) { router.openGroup(group) }
             }
-            ForEach(entries.comics) { comic in
-                CoverCell(comic: comic, cache: coverCache) { router.openIssue(comic) }
+            ForEach(visibleIssues) { comic in
+                CoverCell(comic: comic, cache: coverCache) {
+                    router.openIssue(comic, origin: localOnly ? .local : .home)
+                }
                     .contextMenu { comicMenu(comic) }
             }
         }
-        .overlay(alignment: .top) { atHome ? AnyView(toolbar) : AnyView(folderToolbar) }
+        .overlay(alignment: .top) {
+            if atRoot {
+                localOnly ? AnyView(localToolbar) : AnyView(toolbar)
+            } else {
+                AnyView(folderToolbar)
+            }
+        }
     }
 
-    /// Home shelves: "Continue Reading", then one horizontal shelf per collection, then a
-    /// "Library" heading above the folder grid. All cards match the library's cover size.
-    private func homeHeader(_ recents: [Comic], _ recent: [Comic], _ cols: [Collection]) -> some View {
+    /// Home shelves show the dynamic Smart Collections, followed by the library grid.
+    private func homeHeader(_ collections: [(kind: SmartCollectionKind, comics: [Comic])]) -> some View {
         VStack(alignment: .leading, spacing: 26) {
-            if !recents.isEmpty {
-                shelf(title: "Continue Reading") {
-                    ForEach(recents) { comic in
+            ForEach(collections, id: \.kind.id) { section in
+                shelf(title: section.kind.title) {
+                    ForEach(section.comics) { comic in
                         ContinueCard(comic: comic, cache: coverCache) { router.openFromShelf(comic) }
                             .contextMenu { comicMenu(comic) }
-                    }
-                }
-            }
-            if !recent.isEmpty {
-                shelf(title: "Recently Read") {
-                    ForEach(recent) { comic in
-                        ContinueCard(comic: comic, cache: coverCache) { router.openFromShelf(comic) }
-                            .contextMenu { comicMenu(comic) }
-                    }
-                }
-            }
-            ForEach(cols) { col in
-                shelf(title: col.name) {
-                    ForEach(col.items) { item in
-                        CollectionShelfCard(item: item) { openCollectionItem(item) }
-                            .contextMenu {
-                                Button("Open collection") { router.selectedCollection = col.id; router.route = .collections }
-                                Button("Remove from \(col.name)", role: .destructive) {
-                                    store.remove(item.id, from: col.id)
-                                }
-                            }
                     }
                 }
             }
@@ -378,18 +375,6 @@ struct LibraryView: View {
                 HStack(alignment: .top, spacing: Self.gridSpacing) { cards() }
                     .padding(.horizontal, Self.gridHPadding)
             }
-        }
-    }
-
-    /// Open a collection item from a home shelf: online → its page in the browser; library → reader.
-    private func openCollectionItem(_ item: CollectionItem) {
-        switch item.kind {
-        case .online:
-            if let s = item.page, let u = URL(string: s) { NSWorkspace.shared.open(u) }
-        case .library:
-            guard let p = item.path else { return }
-            AppModel.shared.open(urls: [URL(fileURLWithPath: p)])
-            router.route = .reader
         }
     }
 
@@ -464,7 +449,7 @@ struct LibraryView: View {
                             pendingNew: $pendingNewCollectionItem)
         Divider()
         if comic.progress != nil {
-            Button("Reset Reading") { library.resetState(comic) }
+            Button("Reset Reading…") { pendingReset = comic }
         }
         Button("Create Torrent…") { pendingTorrentSource = comic.url }
         Divider()
@@ -474,58 +459,29 @@ struct LibraryView: View {
     // MARK: Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 14) {
-            Text("Home").font(.headline).foregroundStyle(.white)
-            Spacer()
-            if library.isScanning { ProgressView().controlSize(.small) }
-            onlineSearchField
-            Button { router.showLocal() } label: { Label("Local", systemImage: "internaldrive") }
-                .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
-            Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
-                .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
-            DownloadQueueButton()
-            TorrentQueueButton()
-            Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
-                .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
-            Button { library.rescan() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
-                .labelStyle(.iconOnly).help("Rescan library").pointingHandCursor()
-        }
-        .buttonStyle(.borderless)
-        .tint(.white)
-        .padding(.horizontal, 30)
-        .padding(.vertical, 10)
-        .background(Color.black)
-        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
-    }
-
-    /// Compact Home search field. Press Return to open the unified Online search results.
-    private var onlineSearchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
-            TextField("Search Online", text: $onlineSearchText)
-                .textFieldStyle(.plain).frame(width: 190)
-                .onSubmit { router.showOnlineSearch(query: onlineSearchText) }
-            if !onlineSearchText.isEmpty {
-                Button { onlineSearchText = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.45))
-                }
-                .buttonStyle(.plain).pointingHandCursor()
+        SectionToolbar {
+            Text("Home").font(.headline)
+        } search: { librarySearchField } actions: {
+            HStack(spacing: 14) {
+                if library.isScanning { ProgressView().controlSize(.small) }
+                Button { library.rescan() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh library")
+                Button { addFolder() } label: { Image(systemName: "folder.badge.plus") }.help("Add library folder")
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(.white.opacity(0.08), in: Capsule())
+    }
+
+    private var librarySearchField: some View {
+        NavigationSearchField(prompt: "Search library", text: Binding(get: { localSearchText }, set: { localSearchText = $0 })) {
+            router.showLocal()
+        }
     }
 
     /// Toolbar for the explicit Local destination.
     private var localToolbar: some View {
-        HStack(spacing: 14) {
-            Button { router.showLibrary() } label: { Label("Home", systemImage: "chevron.left") }
-                .pointingHandCursor()
-            Text("Local").font(.headline).foregroundStyle(.white)
-            Text(localCountLabel)
-                .font(.caption2).foregroundStyle(.white.opacity(0.5))
-            Spacer()
-            localSearchField
+        SectionToolbar {
+            SectionHeading(title: "Library", detail: localCountLabel)
+        } search: { librarySearchField } actions: {
+            HStack(spacing: 12) {
             Menu {
                 ForEach(LocalFilter.allCases) { filter in
                     Button {
@@ -535,7 +491,7 @@ struct LibraryView: View {
                     }
                 }
             } label: {
-                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+                Image(systemName: "line.3.horizontal.decrease.circle")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -551,42 +507,15 @@ struct LibraryView: View {
                     }
                 }
             } label: {
-                Label("Sort: \(localSort.label)", systemImage: "arrow.up.arrow.down")
+                Image(systemName: "arrow.up.arrow.down")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .help("Sort local comics")
             .pointingHandCursor()
 
-            Button { router.showOnline() } label: { Label("Online", systemImage: "globe") }
-                .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
-            DownloadQueueButton()
-            Button { router.showCollections() } label: { Label("Collections", systemImage: "rectangle.stack") }
-                .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
-        }
-        .buttonStyle(.borderless)
-        .tint(.white)
-        .padding(.horizontal, 30).padding(.vertical, 10)
-        .background(Color.black)
-        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
-    }
-
-    private var localSearchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
-            TextField("Search Local", text: $localSearchText)
-                .textFieldStyle(.plain)
-                .frame(width: 190)
-            if !localSearchText.isEmpty {
-                Button { localSearchText = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.45))
-                }
-                .buttonStyle(.plain)
-                .pointingHandCursor()
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(.white.opacity(0.08), in: Capsule())
     }
 
     private var localCountLabel: String {
@@ -598,27 +527,20 @@ struct LibraryView: View {
     /// Toolbar while drilled into a sub-folder: back one level + the folder's name + count.
     private var folderToolbar: some View {
         let dir = router.currentDir
-        let entries = library.entries(at: dir)
+        let entries = library.entries(at: dir, matching: localOnly ? filteredLocalComics : nil)
         let issues = entries.comics.count
         let subs = entries.groups.count
-        return HStack(spacing: 14) {
-            Button { router.escapeBack() } label: {
-                Label(parentLabel, systemImage: "chevron.left")
+        return SectionToolbar {
+            HStack(spacing: 10) {
+                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }.help("Back to \(parentLabel)")
+                SectionHeading(
+                    title: dir.map { LibraryModel.displayName(for: $0) } ?? "Home",
+                    detail: countLabel(subs: subs, issues: issues)
+                )
             }
-            .pointingHandCursor()
-            Text(dir.map { LibraryModel.displayName(for: $0) } ?? "Home")
-                .font(.headline).foregroundStyle(.white).lineLimit(1)
-            Text(countLabel(subs: subs, issues: issues))
-                .font(.subheadline).foregroundStyle(.white.opacity(0.6))
-            Spacer()
-            DownloadQueueButton()
+        } search: { librarySearchField } actions: {
+            Button { library.rescan() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh library")
         }
-        .buttonStyle(.borderless)
-        .tint(.white)
-        .padding(.horizontal, 30)
-        .padding(.vertical, 10)
-        .background(Color.black)
-        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
     }
 
     /// Name of the level one step up: the parent folder, or "Home" at the first level.
@@ -636,37 +558,14 @@ struct LibraryView: View {
     /// Toolbar while viewing one comic's chapters: back + title + where-you-left-off + a
     /// "Continue" (resume) shortcut.
     private func chapterToolbar(_ comic: Comic, currentOrdinal: Int?) -> some View {
-        HStack(spacing: 14) {
-            Button { router.closeComic() } label: {
-                Label(router.currentDir.map { TitleCleaner.clean($0.lastPathComponent) } ?? "Home",
-                      systemImage: "chevron.left")
+        SectionToolbar {
+            HStack(spacing: 10) {
+                Button { router.closeComic() } label: { Image(systemName: "chevron.left") }.help("Back to issues")
+                SectionHeading(title: comic.title, detail: "\(comic.chapterCount) chapters")
             }
-            .pointingHandCursor()
-            Text(comic.title).font(.headline).foregroundStyle(.white).lineLimit(1)
-            if let p = comic.progress {
-                Label(currentOrdinal.map { "Chapter \($0) · p.\(p.page)/\(p.count)" }
-                        ?? "p.\(p.page)/\(p.count)",
-                      systemImage: "bookmark.fill")
-                    .font(.subheadline).foregroundStyle(.red)
-            } else {
-                Text("\(comic.chapterCount) chapters")
-                    .font(.subheadline).foregroundStyle(.white.opacity(0.6))
-            }
-            Spacer()
-            if comic.progress != nil {
-                Button { router.openComic(comic, origin: router.selectedComicOrigin) } label: { Label("Continue", systemImage: "book") }
-                    .pointingHandCursor()
-            } else {
-                Button { router.openComic(comic, origin: router.selectedComicOrigin) } label: { Label("Read", systemImage: "book") }
-                    .pointingHandCursor()
-            }
+        } search: { librarySearchField } actions: {
+            Button(comic.progress == nil ? "Read" : "Continue") { router.openComic(comic, origin: router.selectedComicOrigin) }
         }
-        .buttonStyle(.borderless)
-        .tint(.white)
-        .padding(.horizontal, 30)
-        .padding(.vertical, 10)
-        .background(Color.black)
-        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
     }
 
     // MARK: Empty states
@@ -686,6 +585,8 @@ struct LibraryView: View {
             }
         }
         .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) { localOnly ? AnyView(localToolbar) : AnyView(toolbar) }
     }
 
     private var emptyScan: some View {
@@ -695,7 +596,7 @@ struct LibraryView: View {
             Button { library.rescan() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
                 .pointingHandCursor()
         }
-        .overlay(alignment: .top) { toolbar }
+        .overlay(alignment: .top) { localOnly ? AnyView(localToolbar) : AnyView(toolbar) }
     }
 
     private var defaultComicsFolder: URL? {
@@ -1080,12 +981,12 @@ private struct MetadataFetchSheet: View {
 
 /// A compact fixed-width cover for the home "Continue Reading" shelf: cover + progress line +
 /// a small percentage, and the comic's title beneath. Tapping resumes at the last page.
-private struct ContinueCard: View {
+struct ContinueCard: View {
     let comic: Comic
     let cache: ThumbnailCache
     let action: () -> Void
     @State private var cg: CGImage?
-    private static let width: CGFloat = 170
+    private static let width = GridStyle.shelfWidth
 
     var body: some View {
         Button(action: action) {
@@ -1123,7 +1024,7 @@ private struct ContinueCard: View {
 }
 
 /// A fixed-width card for a collection item on a home shelf — matches the library cover size.
-private struct CollectionShelfCard: View {
+struct CollectionShelfCard: View {
     let item: CollectionItem
     let action: () -> Void
     private static let width = GridStyle.shelfWidth
@@ -1206,5 +1107,38 @@ private struct DeleteComicSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+    }
+}
+
+/// Reset progress, with an explicit opt-in to erase chapter markers as well.
+private struct ResetReadingSheet: View {
+    let comic: Comic
+    let onReset: (Bool) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var resetChapters = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Reset reading for \(comic.title)?")
+                .font(.headline)
+            Text("Reading progress and its Continue Reading / Recently Read entries will be cleared. Chapter markers are kept unless you select the option below.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Also reset chapter markers", isOn: $resetChapters)
+                .toggleStyle(.checkbox)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Reset Reading", role: .destructive) {
+                    onReset(resetChapters)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
     }
 }

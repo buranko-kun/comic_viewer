@@ -9,6 +9,7 @@ final class AppRouter {
 
     enum Route { case library, local, onlineSearch, reader, browse, collections }
     var route: Route = .library
+    var localQuery = ""
     /// Global "Keyboard Shortcuts" overlay toggle (menu ⌘/, or ? in the reader).
     var showShortcuts = false
     /// The collection currently opened in the Collections view (nil = the list of collections).
@@ -34,6 +35,7 @@ final class AppRouter {
         case library(path: [URL])       // restore this drilled library folder (a local comic's series)
         case local                       // restore the flat local library
         case collections                 // restore the Collections screen
+        case onlineSearch               // restore online search results
         case browse                     // restore the unified Online browser
     }
     var readerOrigin: ReaderOrigin = .home
@@ -54,6 +56,19 @@ final class AppRouter {
             selectedComicOrigin = origin
         } else {
             openComic(comic, origin: origin)
+        }
+    }
+
+    /// Continue into the following issue in a series from the reader's end-of-issue card.
+    func openNextIssue(_ comic: Comic) {
+        let returnPath = [comic.url.deletingLastPathComponent()]
+        if comic.chapterCount > 0 {
+            path = returnPath
+            selectedComicOrigin = .library(path: returnPath)
+            selectedComic = comic
+            route = .library
+        } else {
+            openComic(comic, origin: .library(path: returnPath))
         }
     }
 
@@ -107,6 +122,14 @@ final class AppRouter {
         LibraryModel.shared.rescan()
     }
 
+    /// Explicit Home navigation always returns to the dashboard.
+    func showHome() {
+        path = []
+        selectedComic = nil
+        selectedComicOrigin = .home
+        showLibrary()
+    }
+
     /// Open the flat local-library view without Home shelves.
     func showLocal() {
         selectedComic = nil
@@ -123,6 +146,14 @@ final class AppRouter {
 
     /// Open the online source browser.
     func showBrowse() { route = .browse }
+
+    func showOnlineRoot() {
+        BrowseState.shared.stack = []
+        BrowseState.shared.returnToSearch = false
+        BrowseState.shared.clearSearch()
+        BrowseState.shared.resetScroll()
+        route = .browse
+    }
 
     /// Open the online section.
     func showOnline() { route = .browse }
@@ -161,6 +192,10 @@ final class AppRouter {
                     route = .collections
                     LibraryModel.shared.rescan()
                     return true
+                case .onlineSearch:
+                    readerOrigin = .home
+                    route = .onlineSearch
+                    return true
                 case .browse:
                     readerOrigin = .home
                     route = .browse
@@ -169,11 +204,24 @@ final class AppRouter {
                     showLibrary()
                     return true
                 }
-            case .browse, .onlineSearch:
-                showLibrary()
+            case .onlineSearch:
+                route = .browse
+                return true
+            case .browse:
+                let browse = BrowseState.shared
+                if !browse.stack.isEmpty {
+                    browse.stack.removeLast()
+                    browse.clearSearch(); browse.resetScroll()
+                    if browse.stack.isEmpty && browse.returnToSearch {
+                        browse.returnToSearch = false
+                        route = .onlineSearch
+                    }
+                } else { showHome() }
                 return true
             case .local:
-                showLibrary()
+                if selectedComic != nil { closeComic(); return true }
+                if !path.isEmpty { path.removeLast(); return true }
+                showHome()
                 return true
             case .collections:
                 if selectedCollection != nil || selectedSmartCollection != nil {
@@ -181,7 +229,7 @@ final class AppRouter {
                     selectedSmartCollection = nil
                     return true
                 }
-                showLibrary()
+                showHome()
                 return true
             case .library:
                 if selectedComic != nil { selectedComic = nil; return true }
@@ -205,7 +253,7 @@ struct RootView: View {
     /// is maximized and the initial scan settles, so launch doesn't look broken.
     @State private var showSplash = true
 
-    var body: some View {
+    private var routedContent: some View {
         Group {
             switch router.route {
             case .library:
@@ -233,6 +281,16 @@ struct RootView: View {
         .id(router.route)
         .transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .trailing)))
         .clipped()
+    }
+
+    var body: some View {
+        Group {
+            if router.route == .reader {
+                routedContent
+            } else {
+                AppNavigationShell { routedContent }
+            }
+        }
         .onAppear { if router.route == .library { maximizeWindow() } }
         .onChange(of: router.route) { _, r in if r != .reader { maximizeWindow() } }
         // The reader draws its own (rotation-aware) copy; here we cover library/online.
@@ -330,5 +388,130 @@ struct SplashView: View {
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+
+/// A persistent sidebar on desktop; narrow windows open the full sidebar over the content.
+struct AppNavigationShell<Content: View>: View {
+    @AppStorage("navigation.sidebarExpanded") private var sidebarExpanded = true
+    @State private var narrowDrawer = false
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        GeometryReader { geometry in
+            let wide = geometry.size.width >= 900
+            let expanded = wide && sidebarExpanded
+            HStack(spacing: 0) {
+                AppSidebar(expanded: expanded) {
+                    if wide { sidebarExpanded.toggle() } else { narrowDrawer.toggle() }
+                }
+                .frame(width: expanded ? 220 : 56)
+                content().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .overlay(alignment: .leading) {
+                if !wide && narrowDrawer {
+                    ZStack(alignment: .leading) {
+                        Color.black.opacity(0.45)
+                            .onTapGesture { narrowDrawer = false }
+                            .accessibilityLabel("Close sidebar")
+                        AppSidebar(expanded: true) { narrowDrawer = false }
+                            .frame(width: 220)
+                            .shadow(color: .black.opacity(0.4), radius: 18, x: 8)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.18), value: expanded)
+            .animation(.easeInOut(duration: 0.18), value: narrowDrawer)
+            .onChange(of: wide) { _, _ in narrowDrawer = false }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleNavigationSidebar)) { _ in
+                if wide { sidebarExpanded.toggle() } else { narrowDrawer.toggle() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .sidebarDidNavigate)) { _ in narrowDrawer = false }
+        }
+    }
+}
+
+struct AppSidebar: View {
+    @Environment(AppRouter.self) private var router
+    let expanded: Bool
+    var toggle: () -> Void
+
+    private var active: AppRouter.Route {
+        if router.route == .onlineSearch { return .browse }
+        if router.route == .library && (!router.path.isEmpty || router.selectedComic != nil) { return .local }
+        return router.route
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                if expanded {
+                    Text("Comic Viewer").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                Button(action: toggle) { Image(systemName: "sidebar.left").frame(width: 32, height: 32) }
+                    .help(expanded ? "Collapse sidebar" : "Expand sidebar")
+                    .accessibilityLabel(expanded ? "Collapse sidebar" : "Expand sidebar")
+            }
+            .padding(.horizontal, expanded ? 16 : 12)
+            .frame(height: 54)
+
+            VStack(spacing: 4) {
+                destination("Home", icon: "house", route: .library) { router.showHome() }
+                destination("Library", icon: "books.vertical", route: .local) { router.showLocal() }
+                destination("Online", icon: "globe", route: .browse) { router.showOnlineRoot() }
+                destination("Collections", icon: "rectangle.stack", route: .collections) { router.showCollections() }
+            }
+            .padding(.horizontal, 8)
+            Spacer(minLength: 20)
+            VStack(alignment: .leading, spacing: 4) {
+                DownloadQueueButton(showLabel: expanded)
+                    .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
+                    .padding(.horizontal, expanded ? 12 : 0).frame(height: 38)
+                TorrentQueueButton(showLabel: expanded)
+                    .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
+                    .padding(.horizontal, expanded ? 12 : 0).frame(height: 38)
+                Divider().overlay(.white.opacity(0.07)).padding(.vertical, 6)
+                SettingsLink {
+                    HStack(spacing: 12) {
+                        Image(systemName: "gearshape").frame(width: 18)
+                        if expanded { Text("Settings"); Spacer(minLength: 0) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
+                    .padding(.horizontal, expanded ? 12 : 0).frame(height: 38)
+                    .contentShape(Rectangle())
+                }.help("Settings")
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 8).padding(.bottom, 12)
+        }
+        .buttonStyle(.plain).tint(.white)
+        .foregroundStyle(.white.opacity(0.8))
+        .frame(maxHeight: .infinity)
+        .background(Color(white: 0.075))
+        .overlay(alignment: .trailing) { Rectangle().fill(.white.opacity(0.06)).frame(width: 1) }
+    }
+
+    private func destination(_ title: String, icon: String, route: AppRouter.Route, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            NotificationCenter.default.post(name: .sidebarDidNavigate, object: nil)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon).frame(width: 18)
+                if expanded { Text(title).lineLimit(1); Spacer(minLength: 0) }
+            }
+            .font(.system(size: 13, weight: active == route ? .medium : .regular))
+            .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
+            .padding(.horizontal, expanded ? 12 : 0).frame(height: 40)
+            .background(active == route ? Color.white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(active == route ? .white : .white.opacity(0.65))
+            .contentShape(Rectangle())
+        }
+        .help(title).accessibilityLabel(title)
+        .accessibilityAddTraits(active == route ? .isSelected : [])
+        .pointingHandCursor()
     }
 }

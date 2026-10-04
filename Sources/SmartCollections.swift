@@ -235,10 +235,15 @@ struct LocalComicCover: View {
 /// back navigation; this view only renders the dynamic grid.
 struct SmartCollectionItemsView: View {
     let kind: SmartCollectionKind
+    var query = ""
+    var order: CollectionItemOrder = .added
     @State private var library = LibraryModel.shared
 
     private var comics: [Comic] {
-        kind.comics(in: library)
+        let filtered = kind.comics(in: library).filter {
+            query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || $0.title.localizedStandardContains(query)
+        }
+        return CollectionSortSupport.ordered(filtered, by: order)
     }
 
     var body: some View {
@@ -250,7 +255,7 @@ struct SmartCollectionItemsView: View {
                     ScrollView {
                         LazyVGrid(
                             columns: GridStyle.columns(geo.size.width),
-                            alignment: .center,
+                            alignment: .leading,
                             spacing: GridStyle.rowSpacing
                         ) {
                             ForEach(comics) { comic in

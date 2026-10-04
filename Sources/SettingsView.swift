@@ -529,11 +529,15 @@ private struct LibraryTab: View {
     @State private var library = LibraryModel.shared
     @State private var comicVineKey = ComicVine.apiKey
     @State private var metadataRefresh = MetadataRefreshCoordinator.shared
+    @AppStorage("collections.displayMode") private var collectionDisplayMode = CollectionDisplayMode.grid.rawValue
+    @AppStorage("collections.order") private var collectionOrder = CollectionOrder.titleAscending.rawValue
+    @AppStorage("collections.itemOrder") private var collectionItemOrder = CollectionItemOrder.added.rawValue
 
     private var archiveCount: Int { library.comics.filter(\.isArchive).count }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 14) {
             Text("Library folders").font(.headline)
             Text("Folders containing your comics.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -555,6 +559,35 @@ private struct LibraryTab: View {
             }
             .frame(minHeight: 120)
             Button { addFolder() } label: { Label("Add Folder…", systemImage: "plus") }
+
+            Divider().padding(.vertical, 4)
+
+            Text("Collections display").font(.headline)
+            Picker("Show my collections as", selection: $collectionDisplayMode) {
+                ForEach(CollectionDisplayMode.allCases) { mode in
+                    Text(mode.label).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            Text(collectionDisplayMode == CollectionDisplayMode.shelves.rawValue
+                 ? "Collections appear as horizontal shelves of comic covers. Select a collection title to open it."
+                 : "Collections appear as a grid. Open one to see all of its comics.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Collection order", selection: $collectionOrder) {
+                ForEach(CollectionOrder.allCases) { order in
+                    Text(order.label).tag(order.rawValue)
+                }
+            }
+            Picker("Comic order", selection: $collectionItemOrder) {
+                ForEach(CollectionItemOrder.allCases) { order in
+                    Text(order.label).tag(order.rawValue)
+                }
+            }
+            Text("Recently read uses saved reading dates. Most progress sorts downloaded comics by their saved page position; reading counts are not tracked.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Divider().padding(.vertical, 4)
 
@@ -630,9 +663,10 @@ private struct LibraryTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
+            Spacer(minLength: 8)
+          }
+          .padding(20)
         }
-        .padding(20)
     }
 
     private func addFolder() {

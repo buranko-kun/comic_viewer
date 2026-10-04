@@ -334,6 +334,8 @@ final class ReaderSession {
         saveState()
     }
 
+    func flushState() { stateStore.flush() }
+
     // MARK: Per-comic state persistence
 
     private func loadState() {

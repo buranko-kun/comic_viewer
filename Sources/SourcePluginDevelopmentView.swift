@@ -4,7 +4,7 @@ import AppKit
 /// The same item action is used by browse and search, including cancellation before navigation.
 @MainActor
 enum PluginComicOpener {
-    static func open(_ comic: RemoteComic, router: AppRouter) async throws {
+    static func open(_ comic: RemoteComic, router: AppRouter, origin: AppRouter.ReaderOrigin = .browse) async throws {
         guard let url = comic.pageURL else { return }
         guard let id = comic.sourceID, let plugin = SourcePluginStore.shared.plugin(id: id), plugin.enabled else {
             NSWorkspace.shared.open(url)
@@ -15,7 +15,12 @@ enum PluginComicOpener {
             try Task.checkCancellation()
             BrowseState.shared.clearSearch()
             BrowseState.shared.resetScroll()
-            BrowseState.shared.stack = [catalog]
+            if case .onlineSearch = origin {
+                BrowseState.shared.stack = [catalog]
+                BrowseState.shared.returnToSearch = true
+            } else {
+                BrowseState.shared.stack.append(catalog)
+            }
             BrowseState.shared.revision += 1
             router.showOnline()
         } else if comic.canRead {
@@ -28,7 +33,7 @@ enum PluginComicOpener {
                                      progress: nil, chapterCount: 0, metaTitle: comic.title,
                                      tooltip: comic.description, remotePages: pages)
             RemoteReadingHistory.shared.record(readingComic)
-            router.openComic(readingComic, origin: .browse)
+            router.openComic(readingComic, origin: origin)
         } else { NSWorkspace.shared.open(url) }
     }
 }

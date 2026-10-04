@@ -33,7 +33,8 @@ struct DownloadsView: View {
                         .buttonStyle(.borderless).pointingHandCursor()
                 }
                 Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction).pointingHandCursor()
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(PanelDoneButtonStyle())
             }
 
             HStack(spacing: 8) {
@@ -70,7 +71,7 @@ struct DownloadsView: View {
                 .pointingHandCursor()
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 10)
+        .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 16)
     }
 
     private var summary: String {
@@ -111,6 +112,38 @@ struct DownloadsView: View {
                     Divider().overlay(.white.opacity(0.08))
                 }
             }
+        }
+    }
+}
+
+struct PanelDoneButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PanelDoneButton(configuration: configuration)
+    }
+
+    private struct PanelDoneButton: View {
+        let configuration: ButtonStyle.Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    (hovering || configuration.isPressed ? Color.red.opacity(0.82) : Color.white.opacity(0.10)),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(.white.opacity(hovering ? 0.22 : 0.10), lineWidth: 1)
+                }
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(.easeOut(duration: 0.14), value: hovering)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+                .onHover { hovering = $0 }
+                .pointingHandCursor()
         }
     }
 }

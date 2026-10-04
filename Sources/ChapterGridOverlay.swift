@@ -12,6 +12,8 @@ struct ChapterGridOverlay: View {
     /// Rename/delete the chapter at a page index (nil = editing not available).
     var onRename: ((Int, String) -> Void)? = nil
     var onDelete: ((Int) -> Void)? = nil
+    var previousPageCount = 0
+    var onDeletePrevious: (() -> Void)? = nil
 
     private let perPage = 6
     private let columns = 3
@@ -35,6 +37,14 @@ struct ChapterGridOverlay: View {
                 HStack {
                     Text("Chapters (\(entries.count))").font(.title2.bold())
                     Spacer()
+                    if previousPageCount > 0, let onDeletePrevious {
+                        Button(action: onDeletePrevious) {
+                            Label("Delete read (\(previousPageCount))", systemImage: "trash")
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .help("Remove every page before the current page, including the cover")
+                    }
                     Button { onClose() } label: { Image(systemName: "xmark.circle.fill").font(.title2) }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)

@@ -43,6 +43,97 @@ struct CollectionItem: Identifiable, Codable, Hashable {
 
 }
 
+enum CollectionDisplayMode: String, CaseIterable, Identifiable {
+    case grid
+    case shelves
+
+    var id: String { rawValue }
+    var label: String { self == .grid ? "Grid" : "Shelves" }
+}
+
+enum CollectionOrder: String, CaseIterable, Identifiable {
+    case titleAscending, titleDescending, mostItems, fewestItems, newest, oldest
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .titleAscending: "Title A–Z"
+        case .titleDescending: "Title Z–A"
+        case .mostItems: "Most comics"
+        case .fewestItems: "Fewest comics"
+        case .newest: "Newest collections"
+        case .oldest: "Oldest collections"
+        }
+    }
+}
+
+enum CollectionItemOrder: String, CaseIterable, Identifiable {
+    case added, titleAscending, titleDescending, downloadedFirst, recentlyRead, mostProgress
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .added: "Custom order"
+        case .titleAscending: "Title A–Z"
+        case .titleDescending: "Title Z–A"
+        case .downloadedFirst: "Downloaded first"
+        case .recentlyRead: "Recently read"
+        case .mostProgress: "Most progress"
+        }
+    }
+}
+
+enum CollectionSortSupport {
+    static func ordered(_ collections: [Collection], by order: CollectionOrder) -> [Collection] {
+        switch order {
+        case .titleAscending:
+            return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .titleDescending:
+            return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        case .mostItems:
+            return collections.sorted {
+                $0.items.count == $1.items.count
+                    ? $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                    : $0.items.count > $1.items.count
+            }
+        case .fewestItems:
+            return collections.sorted {
+                $0.items.count == $1.items.count
+                    ? $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                    : $0.items.count < $1.items.count
+            }
+        case .newest:
+            return collections.sorted { $0.created > $1.created }
+        case .oldest:
+            return collections.sorted { $0.created < $1.created }
+        }
+    }
+
+    static func ordered(_ comics: [Comic], by order: CollectionItemOrder) -> [Comic] {
+        switch order {
+        case .added: return comics
+        case .titleAscending:
+            return comics.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .titleDescending:
+            return comics.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
+        case .downloadedFirst:
+            return comics.sorted { $0.isRemote == $1.isRemote
+                ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                : !$0.isRemote }
+        case .recentlyRead:
+            return comics.sorted {
+                let a = CentralStore.lastReadDate(forKey: CentralStore.key(for: $0.url)) ?? .distantPast
+                let b = CentralStore.lastReadDate(forKey: CentralStore.key(for: $1.url)) ?? .distantPast
+                return a == b ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : a > b
+            }
+        case .mostProgress:
+            return comics.sorted {
+                let a = $0.progress?.fraction ?? 0
+                let b = $1.progress?.fraction ?? 0
+                return a == b ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : a > b
+            }
+        }
+    }
+}
+
 /// A named, ordered list of comics the user is organizing (e.g. "Wonder Woman must-reads").
 struct Collection: Identifiable, Codable, Hashable {
     var id: String = UUID().uuidString
@@ -432,13 +523,61 @@ struct DownloadProgressBar: View {
 struct CollectionsView: View {
     @Environment(AppRouter.self) private var router
     private let store = CollectionStore.shared
-    @State private var library = LibraryModel.shared
     @State private var keyMonitor = KeyMonitor()
-    @State private var swipeBack = SwipeBackDetector()
 
+    @State private var searchText = ""
     @State private var showNew = false
     @State private var renaming: Collection?
     @State private var pendingDelete: Collection?
+    @AppStorage("collections.displayMode") private var displayModeRawValue = CollectionDisplayMode.grid.rawValue
+    @AppStorage("collections.order") private var collectionOrderRawValue = CollectionOrder.titleAscending.rawValue
+    @AppStorage("collections.itemOrder") private var itemOrderRawValue = CollectionItemOrder.added.rawValue
+
+    private var displayMode: CollectionDisplayMode {
+        CollectionDisplayMode(rawValue: displayModeRawValue) ?? .grid
+    }
+
+    private var collectionOrder: CollectionOrder {
+        CollectionOrder(rawValue: collectionOrderRawValue) ?? .titleAscending
+    }
+
+    private var itemOrder: CollectionItemOrder {
+        CollectionItemOrder(rawValue: itemOrderRawValue) ?? .added
+    }
+
+    private var orderedCollections: [Collection] {
+        CollectionSortSupport.ordered(store.collections, by: collectionOrder)
+    }
+
+    private func orderedItems(_ items: [CollectionItem]) -> [CollectionItem] {
+        switch itemOrder {
+        case .added: return items
+        case .titleAscending:
+            return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .titleDescending:
+            return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
+        case .downloadedFirst:
+            return items.sorted { ($0.kind == .library) == ($1.kind == .library)
+                ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                : $0.kind == .library }
+        case .recentlyRead:
+            return items.sorted { readDate(for: $0) > readDate(for: $1) }
+        case .mostProgress:
+            return items.sorted { progress(for: $0) > progress(for: $1) }
+        }
+    }
+
+    private func readDate(for item: CollectionItem) -> Date {
+        guard let path = item.path else { return .distantPast }
+        return CentralStore.lastReadDate(forKey: CentralStore.key(for: URL(fileURLWithPath: path))) ?? .distantPast
+    }
+
+    private func progress(for item: CollectionItem) -> Double {
+        guard let path = item.path,
+              let state = CentralStore.loadState(forKey: CentralStore.key(for: URL(fileURLWithPath: path))),
+              let index = state.lastIndex, let count = state.pageCount, count > 0 else { return 0 }
+        return Double(index + 1) / Double(count)
+    }
 
     var body: some View {
         ZStack {
@@ -466,10 +605,10 @@ struct CollectionsView: View {
                  + "The comics themselves are not deleted.")
         }
         .onAppear {
-            swipeBack.onBack = { router.escapeBack() }
-            keyMonitor.start(key: handleKey, scroll: swipeBack.handle)
+            keyMonitor.start(key: handleKey)
         }
         .onDisappear { keyMonitor.stop() }
+        .onChange(of: router.selectedCollection) { _, _ in searchText = "" }
     }
 
     private func handleKey(_ e: NSEvent) -> Bool {
@@ -482,14 +621,8 @@ struct CollectionsView: View {
 
     private var current: Collection? { router.selectedCollection.flatMap { store.collection($0) } }
 
-    private var currentSmart: SmartCollectionKind? {
-        guard let id = router.selectedSmartCollection else { return nil }
-        return SmartCollectionKind(rawValue: id)
-    }
-
     private var topBarTitle: String {
         if let current { return current.name }
-        if let currentSmart { return currentSmart.title }
         return "Collections"
     }
 
@@ -499,51 +632,29 @@ struct CollectionsView: View {
                 + " item"
                 + (current.items.count == 1 ? "" : "s")
         }
-        if let currentSmart {
-            let count = currentSmart.comics(in: library).count
-            return String(count) + " item" + (count == 1 ? "" : "s")
-        }
         let count = store.collections.count
         return String(count) + " collection" + (count == 1 ? "" : "s")
     }
 
     private var topBar: some View {
-        HStack(spacing: 14) {
-            if current != nil || currentSmart != nil {
-                Button {
-                    router.selectedCollection = nil
-                    router.selectedSmartCollection = nil
-                } label: {
-                    Label("Collections", systemImage: "chevron.left")
+        SectionToolbar {
+            HStack(spacing: 10) {
+                if current != nil {
+                    Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }.help("Back to Collections")
                 }
-                .pointingHandCursor()
+                SectionHeading(title: topBarTitle, detail: topBarSubtitle)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(topBarTitle).font(.headline).foregroundStyle(.white).lineLimit(1)
-                Text(topBarSubtitle).font(.caption2).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
-            }
-            Spacer()
-            Button { router.showLibrary() } label: {
-                Label("Home", systemImage: "house")
-            }
-            .labelStyle(.iconOnly).help("Home").pointingHandCursor()
-            Button { router.showLocal() } label: {
-                Label("Local", systemImage: "internaldrive")
-            }
-            .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
-            Button { router.showOnline() } label: {
-                Label("Online", systemImage: "globe")
-            }
-            .labelStyle(.iconOnly).help("Online").pointingHandCursor()
-            DownloadQueueButton()
-            if current == nil && currentSmart == nil {
+        } search: {
+            NavigationSearchField(prompt: current != nil ? "Search this collection" : "Search collections", text: $searchText)
+        } actions: {
+            if current == nil {
                 Button { showNew = true } label: { Label("New", systemImage: "plus") }
-                    .pointingHandCursor()
             }
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 30).padding(.vertical, 10)
-        .background(Color.black)
+    }
+
+    private func matches(_ title: String) -> Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.localizedStandardContains(searchText)
     }
 
     private var subtitle: String {
@@ -557,8 +668,6 @@ struct CollectionsView: View {
     @ViewBuilder private var content: some View {
         if let c = current {
             itemsGrid(c)
-        } else if let smart = currentSmart {
-            SmartCollectionItemsView(kind: smart)
         } else {
             collectionsGrid
         }
@@ -579,40 +688,22 @@ struct CollectionsView: View {
     }
 
     private var collectionsGrid: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
-                    smartCollectionsSection(width: geo.size.width)
-                    if !store.collections.isEmpty {
-                        manualCollectionsSection(width: geo.size.width)
-                    }
-                }
-                .padding(.horizontal, GridStyle.hPadding)
-                .padding(.top, 24)
-                .padding(.bottom, 24)
-            }
-        }
-    }
-
-    private func smartCollectionsSection(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Smart Collections")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.white)
-
-            LazyVGrid(
-                columns: GridStyle.columns(width),
-                alignment: .center,
-                spacing: GridStyle.rowSpacing
-            ) {
-                ForEach(SmartCollectionKind.allCases) { kind in
-                    let comics = kind.comics(in: library)
-                    SmartCollectionFolderCard(
-                        kind: kind,
-                        comics: comics
-                    ) {
-                        router.selectedCollection = nil
-                        router.selectedSmartCollection = kind.rawValue
+        Group {
+            if store.collections.isEmpty {
+                emptyState
+            } else {
+                GeometryReader { geo in
+                    ScrollView {
+                        Group {
+                            if displayMode == .grid {
+                                manualCollectionsSection(width: geo.size.width)
+                            } else {
+                                manualCollectionShelves
+                            }
+                        }
+                        .padding(.horizontal, GridStyle.hPadding)
+                        .padding(.top, 24)
+                        .padding(.bottom, 24)
                     }
                 }
             }
@@ -637,15 +728,77 @@ struct CollectionsView: View {
 
             LazyVGrid(
                 columns: GridStyle.columns(width),
-                alignment: .center,
+                alignment: .leading,
                 spacing: GridStyle.rowSpacing
             ) {
-                ForEach(store.collections) { col in
+            ForEach(orderedCollections.filter { matches($0.name) }) { col in
                     CollectionFolderCard(collection: col) { router.selectedCollection = col.id }
                         .contextMenu {
                             Button("Rename…") { renaming = col }
                             Button("Delete…", role: .destructive) { pendingDelete = col }
                         }
+                }
+            }
+        }
+    }
+
+    private var manualCollectionShelves: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            ForEach(orderedCollections.filter { collection in
+                matches(collection.name) || collection.items.contains { matches($0.title) }
+            }) { col in
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Button { router.selectedCollection = col.id } label: {
+                            Text(col.name)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open collection \(col.name)")
+
+                        Text("\(col.items.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Menu {
+                            Button("Open collection") { router.selectedCollection = col.id }
+                            Button("Rename…") { renaming = col }
+                            Button("Delete…", role: .destructive) { pendingDelete = col }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 28, height: 28)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .help("Collection options")
+
+                    }
+
+                    let items = orderedItems(col.items.filter { matches($0.title) })
+                    if items.isEmpty {
+                        Text("This collection is empty.")
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.45))
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: GridStyle.spacing) {
+                                ForEach(items) { item in
+                                    CollectionShelfCard(item: item) { open(item) }
+                                        .contextMenu {
+                                            Button(item.kind == .online ? "Open Page" : "Read") { open(item) }
+                                            Button("Remove from Collection", role: .destructive) {
+                                                store.remove(item.id, from: col.id)
+                                            }
+                                        }
+                                }
+                            }
+                            .padding(.bottom, 4)
+                        }
+                    }
                 }
             }
         }
@@ -659,9 +812,9 @@ struct CollectionsView: View {
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white.opacity(0.5)).padding(.top, 60)
                 }
-                LazyVGrid(columns: GridStyle.columns(geo.size.width), alignment: .center,
+                LazyVGrid(columns: GridStyle.columns(geo.size.width), alignment: .leading,
                           spacing: GridStyle.rowSpacing) {
-                    ForEach(col.items) { item in
+                    ForEach(orderedItems(col.items.filter { matches($0.title) })) { item in
                         CollectionItemCard(item: item) { open(item) }
                             .contextMenu {
                                 Button(item.kind == .online ? "Open Page" : "Read") { open(item) }

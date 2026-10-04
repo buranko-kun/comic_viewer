@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 
 @testable import ComicViewer
 
@@ -78,6 +79,103 @@ final class ReaderNavigationTests: XCTestCase {
     private func makePages(count: Int) -> [URL] {
         (1...count).map {
             URL(fileURLWithPath: "/tmp/ComicViewerTests/page\($0).jpg")
+        }
+    }
+}
+
+@MainActor
+final class AppNavigationTests: XCTestCase {
+    func testHomeAlwaysReturnsToDashboard() {
+        let router = AppRouter()
+        router.path = [URL(fileURLWithPath: "/tmp/series")]
+        router.route = .local
+        router.showHome()
+        XCTAssertEqual(router.route, .library)
+        XCTAssertTrue(router.path.isEmpty)
+        XCTAssertNil(router.selectedComic)
+    }
+
+    func testReaderReturnsToSearchResults() {
+        let router = AppRouter()
+        router.route = .reader
+        router.readerOrigin = .onlineSearch
+        XCTAssertTrue(router.escapeBack())
+        XCTAssertEqual(router.route, .onlineSearch)
+        XCTAssertTrue(router.escapeBack())
+        XCTAssertEqual(router.route, .browse)
+    }
+
+    func testOnlineBackPopsOneCatalogAndReturnsToSearch() {
+        let router = AppRouter()
+        let browse = BrowseState.shared
+        let previous = browse.stack
+        let previousReturn = browse.returnToSearch
+        defer { browse.stack = previous; browse.returnToSearch = previousReturn }
+        let root = RemoteCatalog(name: "Parent", sourceURL: URL(string: "https://example.org/parent")!, comics: [], childCatalogs: [])
+        let child = RemoteCatalog(name: "Child", sourceURL: URL(string: "https://example.org/child")!, comics: [], childCatalogs: [])
+        browse.stack = [root, child]
+        browse.returnToSearch = true
+        router.route = .browse
+        router.escapeBack()
+        XCTAssertEqual(browse.stack.count, 1)
+        XCTAssertEqual(router.route, .browse)
+        router.escapeBack()
+        XCTAssertTrue(browse.stack.isEmpty)
+        XCTAssertEqual(router.route, .onlineSearch)
+        XCTAssertFalse(browse.returnToSearch)
+    }
+}
+
+@MainActor
+final class NavigationLayoutTests: XCTestCase {
+    func testSidebarKeepsSearchCenteredInContentWhenExpandedOrCollapsed() async throws {
+        let suite = "ComicViewer-sidebar-test-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        for (width, expanded) in [(640.0, true), (1200.0, true), (1200.0, false)] {
+            defaults.set(expanded, forKey: "navigation.sidebarExpanded")
+            var searchFrame = CGRect.zero
+            let content = AppNavigationShell {
+                VStack(spacing: 0) {
+                    SectionToolbar {
+                        Text("A long catalog name that should truncate before the search field")
+                    } search: {
+                        NavigationSearchField(prompt: "Search this catalog", text: .constant(""))
+                            .background(GeometryReader { geometry in
+                                Color.clear
+                                    .onAppear { searchFrame = geometry.frame(in: .named("shell")) }
+                                    .onChange(of: geometry.size) { _, _ in searchFrame = geometry.frame(in: .named("shell")) }
+                            })
+                    } actions: {
+                        HStack { Image(systemName: "line.3.horizontal.decrease.circle"); Image(systemName: "arrow.clockwise") }
+                    }
+                    Spacer()
+                }.background(Color.black)
+            }
+            .defaultAppStorage(defaults)
+            .environment(AppRouter()).environment(\.colorScheme, .dark)
+            .frame(width: width, height: 500)
+            .coordinateSpace(name: "shell")
+            let host = NSHostingView(rootView: content)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 500), styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = host
+            window.orderFront(nil)
+            host.layoutSubtreeIfNeeded()
+            for _ in 0..<20 {
+                if searchFrame.width > 0 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                if let png = bitmap.representation(using: .png, properties: [:]) {
+                    try png.write(to: URL(fileURLWithPath: "/tmp/comic-sidebar-\(Int(width))-\(expanded).png"))
+                }
+            }
+            try await Task.sleep(for: .milliseconds(100))
+            let sidebarWidth = width >= 900 && expanded ? 220.0 : 56.0
+            XCTAssertGreaterThan(searchFrame.width, 0)
+            XCTAssertEqual(searchFrame.midX, sidebarWidth + (width - sidebarWidth) / 2, accuracy: 1)
+            window.orderOut(nil)
         }
     }
 }

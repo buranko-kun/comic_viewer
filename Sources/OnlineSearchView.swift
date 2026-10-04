@@ -59,7 +59,6 @@ struct OnlineSearchView: View {
     @State private var opening = false
     @State private var openError: String?
     @State private var retryItem: UnifiedSearchItem?
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         @Bindable var state = searchState
@@ -84,7 +83,6 @@ struct OnlineSearchView: View {
         }
         .tint(.white)
         .onAppear {
-            searchFocused = true
             Task { await ensureIndexesLoaded(); runSearch() }
         }
         .onDisappear { searchTask?.cancel(); openTask?.cancel() }
@@ -94,60 +92,14 @@ struct OnlineSearchView: View {
 
     private var topBar: some View {
         @Bindable var state = searchState
-        return HStack(spacing: 14) {
-            Button { router.showLibrary() } label: {
-                Label("Home", systemImage: "chevron.left")
+        return SectionToolbar {
+            HStack(spacing: 10) {
+                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }.help("Back to Online")
+                SectionHeading(title: "Online search", detail: "\(results.count) results")
             }
-            .pointingHandCursor()
-
-            Text("Online Search")
-                .font(.headline).foregroundStyle(.white)
-
-            if !results.isEmpty {
-                Text("\(results.count) results")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.5))
-            }
-
-            Spacer()
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
-                TextField("Search loaded catalogs", text: $state.query)
-                    .textFieldStyle(.plain)
-                    .frame(width: 320)
-                    .focused($searchFocused)
-                if !state.query.isEmpty {
-                    Button { state.query = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
-                    .buttonStyle(.plain).pointingHandCursor()
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(.white.opacity(0.08), in: Capsule())
-
-            Button { router.showLocal() } label: {
-                Label("Local", systemImage: "internaldrive")
-            }
-            .labelStyle(.iconOnly).help("Local library").pointingHandCursor()
-
-            Button { router.showOnline() } label: {
-                Label("Online", systemImage: "globe")
-            }
-            .labelStyle(.iconOnly).help("Browse online catalogs").pointingHandCursor()
-
-            DownloadQueueButton()
-            TorrentQueueButton()
-
-            Button { router.showCollections() } label: {
-                Label("Collections", systemImage: "rectangle.stack")
-            }
-            .labelStyle(.iconOnly).help("Collections").pointingHandCursor()
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 30).padding(.vertical, 10)
-        .background(Color.black)
+        } search: {
+            NavigationSearchField(prompt: "Search all loaded catalogs", text: $state.query)
+        } actions: { EmptyView() }
     }
 
     @ViewBuilder private var content: some View {
@@ -185,7 +137,7 @@ struct OnlineSearchView: View {
         GeometryReader { geo in
             ScrollView {
                 LazyVGrid(columns: GridStyle.columns(geo.size.width),
-                          alignment: .center, spacing: GridStyle.rowSpacing) {
+                          alignment: .leading, spacing: GridStyle.rowSpacing) {
                     ForEach(results) { item in
                         UnifiedSearchCard(item: item) { open(item) }
                     }
@@ -204,7 +156,7 @@ struct OnlineSearchView: View {
         openTask = Task { @MainActor in
             do {
                 switch item {
-                case .catalog(let comic): try await PluginComicOpener.open(comic, router: router)
+                case .catalog(let comic): try await PluginComicOpener.open(comic, router: router, origin: .onlineSearch)
                 }
             } catch {
                 guard !Task.isCancelled else { return }

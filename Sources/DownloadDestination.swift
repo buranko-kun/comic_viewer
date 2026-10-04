@@ -63,6 +63,7 @@ final class DownloadDestinationStore {
 /// Shared queue button used throughout the app chrome. The badge reflects downloading + queued
 /// jobs and opens the same live Downloads panel from any major section.
 struct DownloadQueueButton: View {
+    var showLabel = false
     @State private var manager = DownloadManager.shared
     @State private var showDownloads = false
 
@@ -70,6 +71,7 @@ struct DownloadQueueButton: View {
         Button {
             showDownloads = true
         } label: {
+            HStack(spacing: 12) {
             Image(systemName: "arrow.down.circle")
                 .overlay(alignment: .topTrailing) {
                     if manager.activeCount > 0 {
@@ -82,6 +84,9 @@ struct DownloadQueueButton: View {
                             .offset(x: 8, y: -8)
                     }
                 }
+                if showLabel { Text("Downloads"); Spacer(minLength: 0) }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
         .help(manager.activeCount > 0

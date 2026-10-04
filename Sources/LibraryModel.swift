@@ -24,27 +24,28 @@ final class LibraryModel {
     /// in the location is an issue card; a comic living deeper contributes to a sub-folder
     /// **group** card you drill into. This makes nesting (e.g. `Deadpool/<series>/<issues>`)
     /// navigate level-by-level instead of collapsing into one flat list.
-    func entries(at dir: URL?) -> (groups: [LibraryGroup], comics: [Comic]) {
+    func entries(at dir: URL?, matching candidates: [Comic]? = nil) -> (groups: [LibraryGroup], comics: [Comic]) {
+        let source = candidates ?? comics
         // Drilling into a folder skips over any "pass-through" levels — a sub-folder that holds
         // exactly one series and nothing else — so e.g. Batman → (its only series) → issues lands
         // straight on the issues. The intermediate series level only appears when there are 2+.
-        let bases = dir.map { [resolveSingleChain($0.standardizedFileURL)] }
+        let bases = dir.map { [resolveSingleChain($0.standardizedFileURL, comics: source)] }
             ?? folders.map(\.standardizedFileURL)
-        return listing(bases: bases)
+        return listing(bases: bases, comics: source)
     }
 
     /// Descend while a folder contains exactly one sub-series and no issues of its own.
-    private func resolveSingleChain(_ dir: URL) -> URL {
+    private func resolveSingleChain(_ dir: URL, comics: [Comic]) -> URL {
         var current = dir
         while true {
-            let e = listing(bases: [current])
+            let e = listing(bases: [current], comics: comics)
             guard e.comics.isEmpty, e.groups.count == 1 else { return current }
             current = e.groups[0].url
         }
     }
 
     /// List the immediate groups + comics directly under `bases` (no chain-skipping).
-    private func listing(bases: [URL]) -> (groups: [LibraryGroup], comics: [Comic]) {
+    private func listing(bases: [URL], comics: [Comic]) -> (groups: [LibraryGroup], comics: [Comic]) {
         var groupComics: [URL: [Comic]] = [:]
         var direct: [Comic] = []
         for c in comics {
@@ -127,11 +128,23 @@ final class LibraryModel {
 
     func rescan() { scan() }
 
-    /// Clear a comic's saved reading state (resume position, chapters, rotation) so it reads as a
-    /// brand-new, never-opened comic. The file itself is untouched.
-    func resetState(_ comic: Comic) {
-        try? FileManager.default.removeItem(at: CentralStore.stateURL(for: CentralStore.key(for: comic.url)))
-        scan()   // refresh progress badges
+    /// Clear reading progress while keeping user chapter markers, unless explicitly requested.
+    /// The comic file itself is never changed.
+    func resetState(_ comic: Comic, removingChapters: Bool = false) {
+        let key = CentralStore.key(for: comic.url)
+        let stateURL = CentralStore.stateURL(for: key)
+        if removingChapters {
+            try? FileManager.default.removeItem(at: stateURL)
+        } else if var state = CentralStore.loadState(forKey: key) {
+            state.lastPage = nil
+            state.lastIndex = nil
+            state.pageCount = nil
+            state.lastReadAt = nil
+            if let data = try? JSONEncoder().encode(state) {
+                try? data.write(to: stateURL, options: .atomic)
+            }
+        }
+        scan()   // progress-based Smart Collections refresh immediately
     }
 
     /// Remove a comic from the library. `fromDisk == false` hides it (kept on disk, filtered from

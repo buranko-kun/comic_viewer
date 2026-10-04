@@ -33,6 +33,7 @@
 		2623E9A8E877DDD8A9C7EB16 /* ChapterTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51A54FCC7298BD85AD8B3C6 /* ChapterTest.swift */; };
 		26D6B407C29F90B1D767E7F9 /* TorrentCreatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F252F64B174548AA23A8EAE5 /* TorrentCreatorTests.swift */; };
 		26E18CC81CC8093BF8B58F27 /* ArchiveSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83559FB94DBCD03C2F587755 /* ArchiveSessionManager.swift */; };
+		A8F103B7C48048AFBBA2C3A1 /* ArchiveChapterEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F103B7C48048AFBBA2C3A0 /* ArchiveChapterEditor.swift */; };
 		28D4FF733DE1AAC1E3719C7F /* FileScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB61AC3132328E8DAF0E8D7F /* FileScannerTests.swift */; };
 		28FD424D54A21E88BC106E8E /* SourcePluginSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0BDA7C431CE402F01B19A1 /* SourcePluginSettingsStore.swift */; };
 		29F0D8C92D176ACCC7CA2C8B /* MirrorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 421D43DFC844659E72AD4123 /* MirrorStore.swift */; };
@@ -236,6 +237,7 @@
 		B2B1F9D78C656565AC81AA62 /* StateTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateTest.swift; sourceTree = "<group>"; };
 		B4921AC6CA4A00C1E842DE75 /* ReaderPageSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPageSource.swift; sourceTree = "<group>"; };
 		B9527D7544FFFAFA890B9B19 /* ArchiveExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveExtractor.swift; sourceTree = "<group>"; };
+		A8F103B7C48048AFBBA2C3A0 /* ArchiveChapterEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveChapterEditor.swift; sourceTree = "<group>"; };
 		B976B59A28A99771F721066D /* SupportedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportedTypes.swift; sourceTree = "<group>"; };
 		BAA5D750872E75503CAB117C /* DownloadDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadDestination.swift; sourceTree = "<group>"; };
 		BB03D3A6C7AD9CC9FE3064B2 /* TorrentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentsView.swift; sourceTree = "<group>"; };
@@ -310,6 +312,7 @@
 				4008CD002829C877B7578D74 /* AppNotice.swift */,
 				17BDB985C878FC369F4AEBB2 /* ArchiveCover.swift */,
 				B9527D7544FFFAFA890B9B19 /* ArchiveExtractor.swift */,
+				A8F103B7C48048AFBBA2C3A0 /* ArchiveChapterEditor.swift */,
 				4A3C245430CB11906940FC73 /* ArchiveOpener.swift */,
 				83559FB94DBCD03C2F587755 /* ArchiveSessionManager.swift */,
 				46386844324080097C1E26C0 /* ArchiveStreamer.swift */,
@@ -604,6 +607,7 @@
 				211B509DFE1581D9FEEBE2B6 /* AppModel.swift in Sources */,
 				EC1837A85EE86927EB7CC541 /* AppNotice.swift in Sources */,
 				A5AD01411504F3CA7BA5488A /* ArchiveCover.swift in Sources */,
+				A8F103B7C48048AFBBA2C3A1 /* ArchiveChapterEditor.swift in Sources */,
 				82148E6A14EDBFB0A590BAEB /* ArchiveExtractor.swift in Sources */,
 				0B639A42371B782C0213AB42 /* ArchiveOpener.swift in Sources */,
 				26E18CC81CC8093BF8B58F27 /* ArchiveSessionManager.swift in Sources */,

@@ -1,4 +1,6 @@
 import Foundation
+import CoreGraphics
+import ImageIO
 
 /// Produces (and caches) a cover image for an archive comic without extracting the whole thing,
 /// so the library can show real covers for `.cbz/.cbr/…` instead of a placeholder. Covers live
@@ -13,10 +15,27 @@ enum ArchiveCover {
         await Task.detached(priority: .utility) { makeSync(for: archive) }.value
     }
 
+    /// Preserve a compact cover keyed by the comic's stable path. This survives page trimming,
+    /// where the original first image may be removed from the archive.
+    static func preserveThumbnail(for archive: URL) async -> Bool {
+        await Task.detached(priority: .utility) { preserveThumbnailSync(for: archive) }.value
+    }
+
+    /// A CBR trim may create a sibling CBZ, so carry its saved cover to the replacement path.
+    static func copyPreservedThumbnail(from source: URL, to destination: URL) {
+        let from = preservedURL(for: source)
+        let to = preservedURL(for: destination)
+        guard from != to, FileManager.default.fileExists(atPath: from.path) else { return }
+        try? FileManager.default.removeItem(at: to)
+        try? FileManager.default.copyItem(at: from, to: to)
+    }
+
     /// Return a cached cover if present, else extract the first image entry and cache it.
     static func makeSync(for archive: URL) -> URL? {
         let key = CentralStore.sha256(CentralStore.key(for: archive))
         let fm = FileManager.default
+        let thumb = preservedURL(for: archive)
+        if isNonEmpty(thumb) { return thumb }
         if let hit = cached(key: key) { return hit }
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
@@ -38,6 +57,28 @@ enum ArchiveCover {
             }
         }
         return nil
+    }
+
+    private static func preserveThumbnailSync(for archive: URL) -> Bool {
+        let destination = preservedURL(for: archive)
+        if isNonEmpty(destination) { return true }
+        guard let source = makeSync(for: archive),
+              let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 420,
+                kCGImageSourceCreateThumbnailWithTransform: true
+              ] as CFDictionary) else { return false }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard let output = CGImageDestinationCreateWithURL(destination as CFURL, "public.jpeg" as CFString, 1, nil)
+        else { return false }
+        CGImageDestinationAddImage(output, image, [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary)
+        return CGImageDestinationFinalize(output) && isNonEmpty(destination)
+    }
+
+    private static func preservedURL(for archive: URL) -> URL {
+        let key = CentralStore.sha256(CentralStore.key(for: archive))
+        return dir.appendingPathComponent(key + "-preserved.jpg")
     }
 
     // MARK: - helpers
