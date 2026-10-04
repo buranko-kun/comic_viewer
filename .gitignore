@@ -15,3 +15,6 @@ DerivedData/
 
 # macOS
 .DS_Store
+
+# Personal development notes should stay local.
+PROJECT_NOTES.md

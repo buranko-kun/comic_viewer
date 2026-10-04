@@ -545,7 +545,6 @@
 						ProvisioningStyle = Manual;
 					};
 					D38B9B2E7F2390CE09C49268 = {
-						DevelopmentTeam = D46WN8L976;
 						ProvisioningStyle = Automatic;
 					};
 					DB37BA8EC1A44DCB1766828E = {
@@ -822,7 +821,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = D46WN8L976;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -830,7 +828,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.esteban.ComicViewerMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = org.example.comicviewer.ios;
 				PRODUCT_NAME = "Comic Viewer";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -849,7 +847,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.esteban.ComicViewerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = org.example.comicviewer.tests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ComicViewer.app/Contents/MacOS/ComicViewer";
 			};
@@ -935,7 +933,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.esteban.ComicViewerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = org.example.comicviewer.tests;
 				SDKROOT = macosx;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ComicViewer.app/Contents/MacOS/ComicViewer";
 			};
@@ -954,7 +952,7 @@
 				);
 				LSApplicationCategoryType = "public.app-category.photography";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.esteban.ComicViewer;
+				PRODUCT_BUNDLE_IDENTIFIER = org.example.comicviewer;
 				PRODUCT_NAME = ComicViewer;
 				SDKROOT = macosx;
 			};
@@ -973,7 +971,7 @@
 				);
 				LSApplicationCategoryType = "public.app-category.photography";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.esteban.ComicViewer;
+				PRODUCT_BUNDLE_IDENTIFIER = org.example.comicviewer;
 				PRODUCT_NAME = ComicViewer;
 				SDKROOT = macosx;
 			};
@@ -985,7 +983,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = D46WN8L976;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -993,7 +990,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.esteban.ComicViewerMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = org.example.comicviewer.ios;
 				PRODUCT_NAME = "Comic Viewer";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

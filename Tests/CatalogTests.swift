@@ -9,7 +9,7 @@ final class CatalogTests: XCTestCase {
 
     private let manifest = """
     {
-      "name": "Esteban's Comics",
+      "name": "Sample Comics",
       "comics": [
         {
           "id": "dp-001",
@@ -35,7 +35,7 @@ final class CatalogTests: XCTestCase {
 
     func testCatalogMetadata() throws {
         let cat = try parsed()
-        XCTAssertEqual(cat.name, "Esteban's Comics")
+        XCTAssertEqual(cat.name, "Sample Comics")
         XCTAssertEqual(cat.comics.count, 2)
         XCTAssertEqual(cat.childCatalogs.count, 2)
     }

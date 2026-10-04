@@ -4,9 +4,9 @@ import os
 /// Unified performance instrumentation for the reader.
 ///
 /// Events are measurement-only: they do not affect loading decisions or cache policy.
-/// Use Console/Instruments with subsystem `com.esteban.ComicViewer` and category `Performance`.
+/// Use Console/Instruments with subsystem `org.example.comicviewer` and category `Performance`.
 enum ReaderPerformance {
-    static let subsystem = "com.esteban.ComicViewer"
+    static let subsystem = "org.example.comicviewer"
     static let log = Logger(subsystem: subsystem, category: "Performance")
     private static let signpostLog = OSLog(subsystem: subsystem, category: "Performance")
 

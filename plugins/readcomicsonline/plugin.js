@@ -1,6 +1,5 @@
 // Comic Viewer source plugin for ReadComicsOnline.
-// Install from the raw GitHub URL:
-// https://raw.githubusercontent.com/buranko-kun/comic_viewer/main/plugins/readcomicsonline/plugin.js
+// Install this plugin from the repository's plugin folder.
 //
 // The site may present a browser challenge. Open this plugin's source browser session
 // from Preferences -> Sources; the runtime reuses the same persistent website data store.

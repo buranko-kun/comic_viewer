@@ -25,6 +25,8 @@ xcodebuild -scheme ComicViewer -configuration Debug build   # macOS app
 ```
 
 Targets: `ComicViewer` (macOS), `ComicViewerMobile` (iOS), `ComicViewerTests`.
+The project uses generic example bundle identifiers. Replace them and configure your signing team
+in Xcode before distributing an app build.
 
 ### iOS device install
 
@@ -47,8 +49,8 @@ ComicViewer --chaptertest <folder>
 
 ### Reader performance diagnostics
 
-PR #10 adds measurement-only instrumentation under the unified logging subsystem
-`com.esteban.ComicViewer`, category `Performance`. It records first-visible-page latency,
+The app includes measurement-only instrumentation under the unified logging subsystem
+`org.example.comicviewer`, category `Performance`. It records first-visible-page latency,
 per-page load signposts, image decode time, cache hits/misses, archive preparation/extraction time,
 and remote page probing/loading time.
 
@@ -56,7 +58,7 @@ To inspect the numeric logs from Terminal:
 
 ```bash
 log show --style compact --info \
-  --predicate 'subsystem == "com.esteban.ComicViewer" AND category == "Performance"'
+  --predicate 'subsystem == "org.example.comicviewer" AND category == "Performance"'
 ```
 
 For interactive timing, open Instruments → Points of Interest and select the ComicViewer process.

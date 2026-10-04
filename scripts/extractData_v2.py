@@ -18,19 +18,19 @@ from bs4 import BeautifulSoup, Tag
 # PUT YOUR TXT FILE PATH HERE
 # ------------------------------------------------------------
 
-URLS_FILE = "C:/Users/WS14/Desktop/urls.txt"
+URLS_FILE = "urls.txt"
 
 # ------------------------------------------------------------
 # OUTPUT JSON FILE
 # ------------------------------------------------------------
 
-OUTPUT_FILE = "C:/Users/WS14/Desktop/getcomics.json"
+OUTPUT_FILE = "getcomics.json"
 
 # ------------------------------------------------------------
 # ERROR / PROBLEM LOG FILE
 # ------------------------------------------------------------
 
-ERROR_LOG_FILE = "C:/Users/WS14/Desktop/getcomics_errors.txt"
+ERROR_LOG_FILE = "getcomics_errors.txt"
 
 # ------------------------------------------------------------
 # LINK RANGE (1-based, inclusive)

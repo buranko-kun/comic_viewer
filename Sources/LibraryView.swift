@@ -578,7 +578,7 @@ struct LibraryView: View {
             Button { addFolder() } label: { Label("Add Library Folder…", systemImage: "plus") }
                 .controlSize(.large).pointingHandCursor()
             if defaultComicsFolder != nil {
-                Button("Add ~/Downloads/Media/Comics") {
+                Button("Add ~/Comics") {
                     if let d = defaultComicsFolder { library.addFolder(d) }
                 }
                 .pointingHandCursor()
@@ -601,7 +601,7 @@ struct LibraryView: View {
 
     private var defaultComicsFolder: URL? {
         let d = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Downloads/Media/Comics")
+            .appendingPathComponent("Comics")
         return (try? d.checkResourceIsReachable()) == true ? d : nil
     }
 
