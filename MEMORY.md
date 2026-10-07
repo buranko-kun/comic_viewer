@@ -48,9 +48,9 @@ reading history, and credentials are not repository artifacts.
 - Plugin test startup runs asynchronously after AppKit finishes launching, through the app
   delegate. It does not create NSApplication from the SwiftUI App initializer. Fixture progress
   is printed immediately, and offline fixtures follow continuation batches.
-- A local CI workflow change adds JavaScript regressions and offline WebKit fixtures.
-  GitHub rejected its publication because the current OAuth token lacks workflow scope;
-  the workflow remains modified locally and is excluded from this published update.
+- CI includes JavaScript regressions and offline WebKit fixtures, using the same derived
+  build directory as the macOS tests. GitHub initially rejected the workflow update;
+  authorization was refreshed with workflow scope before publishing this follow-up.
 
 ### Online browsing, search, and reading history
 
@@ -116,5 +116,7 @@ reading history, and credentials are not repository artifacts.
   configuration changes are recorded only in private notes and are not uploaded.
 - Publication updates the existing `fix-plugin-runtime-return-values` branch. It does not
   merge into main or create a downloadable release unless separately requested.
-- Publishing the remaining CI workflow requires GitHub credentials authorized to update
-  workflows. App code, tests, plugin changes, and this shared memory are published separately.
+- The workflow authorization issue was resolved on 2026-10-07. App improvements and memory
+  were published in commit `42fc64f`; the CI workflow is included in the follow-up commit.
+  CI runs on pushes to main/refactor branches and on pull requests; this working-branch push
+  alone does not guarantee a new CI run.

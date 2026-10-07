@@ -24,4 +24,16 @@ jobs:
         run: xcodegen generate
 
       - name: Test macOS app
-        run: xcodebuild test -scheme ComicViewer -destination 'platform=macOS'
+        run: xcodebuild test -scheme ComicViewer -destination 'platform=macOS' -derivedDataPath build/ci
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Plugin JavaScript regressions
+        run: node --test plugins/readcomicsonline/plugin.test.cjs
+
+      - name: Offline WebKit plugin fixtures
+        env:
+          COMIC_VIEWER_TEST_BINARY: ${{ github.workspace }}/build/ci/Build/Products/Debug/ComicViewer.app/Contents/MacOS/ComicViewer
+        run: tools/test-source-plugin plugins/readcomicsonline/plugin.js plugins/readcomicsonline/fixtures/suite.json
