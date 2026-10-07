@@ -33,16 +33,15 @@ reading history, and credentials are not repository artifacts.
 ### Online catalogues and plugin runtime
 
 - Online has a catalogue selector instead of combining sources into a confusing root with
-  next-page folders. The manually configured catalogue's display name can be GetComics;
-  that name is configuration, not hardcoded app logic.
-- RCO plugin 1.5.0 presents a flat catalogue with app sorting controls. Background continuation
+  next-page folders. Manual catalogue display names come from configuration, not hardcoded app logic.
+- A locally installed source presents a flat catalogue with app sorting controls. Background continuation
   batches publish early, preserve ordering, resume incomplete snapshots, and retain completed
   catalogue snapshots until explicit refresh. Requests adapt after source rejection.
 - `RemoteCatalog.continuationURL` and catalogue merging support progressive plugin results.
   The aggregator guards against repeated continuation URLs and stale generations, saves
   partial results on failure, and yields between batches for reader and cover operations.
 - Generic `cached-catalog` and `first-page-covers` capabilities keep website behavior out of
-  the app core. RCO discovers each issue's first page rather than repeating the series cover.
+  the app core. Capable plugins discover each issue's first page rather than repeating the series cover.
 - Issue cover resources and parsed page lists have a 14-day cache. Synchronous remembered
   cover lookup prevents recycled grid cards briefly reverting to the series cover on scroll.
 - Plugin test startup runs asynchronously after AppKit finishes launching, through the app
@@ -94,7 +93,7 @@ reading history, and credentials are not repository artifacts.
 ## Verification
 
 - Current debug app builds successfully.
-- JavaScript RCO regression suite: 9 tests pass.
+- Private local plugin regression suite: 9 tests passed before repository separation.
 - Cover refresh plus smart collections: 16 targeted XCTest tests pass, including saved-cover
   replacement after first-page removal, failed extraction fallback, thumbnail invalidation,
   and streamed reading reset with and without chapter removal.
@@ -103,20 +102,41 @@ reading history, and credentials are not repository artifacts.
 - Final full macOS XCTest suite: 124 tests pass with zero failures. The back-navigation
   regression test now exercises the current external-navigation API rather than setting the
   obsolete return-to-search flag directly.
-- Offline RCO WebKit fixture suite: all 6 cases pass, including catalogue continuation,
+- Private local plugin WebKit fixture suite: all 6 cases passed before repository separation, including catalogue continuation,
   warm cache, chapter ordering, lazy image discovery, and challenge-page failure reporting.
 
 ## Scope and remaining limits
 
 - Website availability, rate limiting, and verification requirements are external; offline
-  fixtures do not guarantee live access. Initial RCO catalogue discovery still proceeds in batches.
+  fixtures do not guarantee live access. Initial remote catalogue discovery still proceeds in batches.
 - Issue covers fall back to the series image if discovery fails. Reset cover regeneration applies
   to local comics; streamed reading reset clears history without forcing remote image downloads.
 - Cover generation never changes comic contents. One-off local archive cleanup and catalogue
   configuration changes are recorded only in private notes and are not uploaded.
-- Publication updates the existing `fix-plugin-runtime-return-values` branch. It does not
-  merge into main or create a downloadable release unless separately requested.
+- App updates initially used `fix-plugin-runtime-return-values`. The repository separation
+  update also advances main to the cleaned code. No downloadable release is created.
 - The workflow authorization issue was resolved on 2026-10-07. App improvements and memory
   were published in commit `42fc64f`; the CI workflow is included in the follow-up commit.
   CI runs on pushes to main/refactor branches and on pull requests; this working-branch push
   alone does not guarantee a new CI run.
+
+
+## Repository separation — 2026-10-07
+
+- Website-specific integrations and scraper scripts are private local files, excluded by
+  `/plugins/` and `/scripts/` in `.gitignore`. Installed plugin copies, settings, sessions,
+  and caches remain in local Application Support storage and are not changed by Git cleanup.
+- The public repository retains the generic plugin runtime, example templates, and synthetic
+  example-domain fixtures. CI must not depend on private integrations.
+- Shared comments, tests, and documentation use generic source names. Private source details
+  and backup locations belong in the ignored project notes.
+- Historical commits and old branches can still expose removed files. Removing files from
+  current branch tips does not purge Git history; destructive history cleanup requires a
+  separate, reviewed step.
+
+- Separation validation: 124 macOS tests, 4 generic JavaScript regressions, and 3 generic
+  WebKit fixture cases pass. The private local plugin's 9 regressions also still pass.
+  All 37 private integration files and their backup copies are byte-for-byte unchanged.
+- The tracked tree contains no private integration paths or known source-specific/personal
+  text matches. Cleanup commits use generic contributor attribution; earlier authorship
+  and removed files remain in existing history until a separate history cleanup is approved.

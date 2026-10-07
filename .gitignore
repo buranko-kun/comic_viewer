@@ -18,3 +18,8 @@ DerivedData/
 
 # Personal development notes should stay local.
 PROJECT_NOTES.md
+
+# Private source integrations and their local backups are never published.
+/plugins/
+/scripts/
+/.local-backups/

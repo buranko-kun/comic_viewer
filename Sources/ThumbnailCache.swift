@@ -27,7 +27,7 @@ actor ThumbnailCache {
 
     /// Return a thumbnail: memory → disk → generate. Decoding runs off the actor, so calls
     /// for different URLs proceed in parallel; calls for the same URL share one decode.
-    /// Remote (http) URLs — e.g. a ReadComicsOnline issue's chapter thumbnails — are downloaded and
+    /// Remote (http) URLs, including streamed chapter thumbnails, are downloaded and
     /// cached by `RemoteImageCache`, so callers (grids, the chapter grid) work for both transparently.
     func thumbnail(for url: URL, maxPixel: Int) async -> CGImage? {
         if !url.isFileURL { return await RemoteImageCache.shared.image(for: url, maxPixel: maxPixel) }

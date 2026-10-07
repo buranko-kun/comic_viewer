@@ -21,7 +21,7 @@ final class SmartCollectionsTests: XCTestCase {
         let history = RemoteReadingHistory(fileURL: historyURL)
         let pages = (1...10).map { URL(string: "https://fixture.invalid/pages/\($0).jpg")! }
         let comic = Comic(url: URL(string: "https://fixture.invalid/\(UUID().uuidString)")!,
-                          series: "RCO fixture", isArchive: false, coverURL: pages.first,
+                          series: "Streamed fixture", isArchive: false, coverURL: pages.first,
                           pageCount: 10, progress: ComicProgress(page: 4, count: 10),
                           chapterCount: 1, metaTitle: "Streamed issue", tooltip: nil, remotePages: pages)
         let key = CentralStore.key(for: comic.url)

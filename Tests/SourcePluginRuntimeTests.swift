@@ -206,7 +206,7 @@ final class SourcePluginRuntimeTests: XCTestCase {
     }
 
     func testHTTPErrorPresentationKeepsDetailsBelowConciseStatus() {
-        let detail = "Source JavaScript failed: Error: ReadComicsOnline returned HTTP 403 for https://example.com/comic (line 0)"
+        let detail = "Source JavaScript failed: Error: Example source returned HTTP 403 for https://example.com/comic (line 0)"
         let presentation = SourceErrorPresentation(detail)
         XCTAssertEqual(presentation.title, "Error 403")
         XCTAssertEqual(presentation.detail, detail)

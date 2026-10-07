@@ -31,9 +31,9 @@ jobs:
           node-version: '22.14.0'
 
       - name: Plugin JavaScript regressions
-        run: node --test plugins/readcomicsonline/plugin.test.cjs
+        run: node --test examples/source-plugin-template.test.cjs
 
       - name: Offline WebKit plugin fixtures
         env:
           COMIC_VIEWER_TEST_BINARY: ${{ github.workspace }}/build/ci/Build/Products/Debug/ComicViewer.app/Contents/MacOS/ComicViewer
-        run: tools/test-source-plugin plugins/readcomicsonline/plugin.js plugins/readcomicsonline/fixtures/suite.json
+        run: tools/test-source-plugin examples/source-plugin-template.js examples/source-plugin-fixtures/suite.json

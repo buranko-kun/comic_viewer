@@ -105,7 +105,7 @@ default values must match the type and select options. Settings persist separate
 Run the production WebKit runtime against saved HTML without live site access:
 
 ```sh
-tools/test-source-plugin plugins/readcomicsonline/plugin.js plugins/readcomicsonline/fixtures/suite.json
+tools/test-source-plugin examples/source-plugin-template.js examples/source-plugin-fixtures/suite.json
 ```
 
 The wrapper builds into `build/plugin-tests`; set `COMIC_VIEWER_TEST_BINARY` to reuse an existing
@@ -125,6 +125,6 @@ unchanged; fetch uses declared fixture responses, external subresources are bloc
 requests fail. Cookies, redirects and native image decoding are tested separately against a loopback
 HTTP server in XCTest. Fixture success does not establish live-site compatibility.
 
-The macOS CI workflow runs XCTest, Node regressions, and the RCO WebKit HTML suite. Live-site smoke
+The macOS CI workflow runs XCTest, Node regressions, and the generic template WebKit HTML suite. Live-site smoke
 checks remain manual: login if necessary, root → next page → series → issue, confirm visible covers
 and reader pages, and compare cold/warm diagnostic timings and request counts.

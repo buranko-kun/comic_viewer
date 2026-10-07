@@ -13,8 +13,7 @@
 //   clearCache()
 //   parsePages()
 //
-// The manifest metadata is deliberately similar to HakuNeko's connector metadata:
-// tags describe the source for filtering/discovery, while capabilities tell the app which
+// Tags describe the source for filtering/discovery, while capabilities tell the app which
 // operations the source intends to provide.
 
 globalThis.ComicViewerSource = {
