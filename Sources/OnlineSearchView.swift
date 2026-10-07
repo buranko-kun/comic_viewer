@@ -9,6 +9,12 @@ import Observation
 final class OnlineSearchState {
     static let shared = OnlineSearchState()
     var query = ""
+    var results: [UnifiedSearchItem] = []
+    var resultsToken = ""
+    var resultsQuery = ""
+    var windowStart = 0
+    var windowCount = 400
+    var anchorID: String?
 }
 
 /// A result from any indexed online catalog.
@@ -51,7 +57,10 @@ struct OnlineSearchView: View {
     @State private var searchState = OnlineSearchState.shared
     private let aggregator = CatalogAggregator.shared
 
-    @State private var results: [UnifiedSearchItem] = []
+    private var results: [UnifiedSearchItem] {
+        get { searchState.results }
+        nonmutating set { searchState.results = newValue }
+    }
     @State private var searching = false
     @State private var loaded = false
     @State private var searchTask: Task<Void, Never>?
@@ -65,7 +74,7 @@ struct OnlineSearchView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             VStack(spacing: 0) {
-                topBar
+                topBar.zIndex(2)
                 Divider().overlay(.white.opacity(0.12))
                 if let openError {
                     HStack {
@@ -94,11 +103,12 @@ struct OnlineSearchView: View {
         @Bindable var state = searchState
         return SectionToolbar {
             HStack(spacing: 10) {
-                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }.help("Back to Online")
+                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }
+                    .help("Back to Online").pointingHandCursor()
                 SectionHeading(title: "Online search", detail: "\(results.count) results")
             }
         } search: {
-            NavigationSearchField(prompt: "Search all loaded catalogs", text: $state.query)
+            NavigationSearchField(prompt: "Search all loaded catalogs", text: $state.query, onlineSuggestions: true, suggestionTitles: aggregator.comics.map(\.title))
         } actions: { EmptyView() }
     }
 
@@ -134,21 +144,18 @@ struct OnlineSearchView: View {
     }
 
     private var grid: some View {
-        GeometryReader { geo in
-            ScrollView {
-                LazyVGrid(columns: GridStyle.columns(geo.size.width),
-                          alignment: .leading, spacing: GridStyle.rowSpacing) {
-                    ForEach(results) { item in
-                        UnifiedSearchCard(item: item) { open(item) }
-                    }
-                }
-                .padding(.horizontal, GridStyle.hPadding)
-                .padding(.top, 24).padding(.bottom, 24)
+        @Bindable var state = searchState
+        return WindowedCoverGrid(items: results, letters: [], windowStart: $state.windowStart,
+            windowCount: $state.windowCount, resetKey: state.resultsQuery, showRail: false,
+            restoreID: state.anchorID, onActiveIndex: { index in
+                if results.indices.contains(index) { state.anchorID = results[index].id }
+            }, onReset: { state.anchorID = nil }, header: { EmptyView() }, leading: { EmptyView() }) { item in
+                UnifiedSearchCard(item: item) { open(item) }
             }
-        }
     }
 
     private func open(_ item: UnifiedSearchItem) {
+        OnlineSearchHistory.shared.record(searchState.query)
         openTask?.cancel()
         retryItem = item
         openError = nil
@@ -177,11 +184,17 @@ struct OnlineSearchView: View {
         searchTask?.cancel()
         let q = searchState.query.trimmingCharacters(in: .whitespaces)
         if q.isEmpty {
-            results = []
+            results = []; searchState.resultsToken = ""
             searching = false
             return
         }
 
+        let token = q + "|" + String(aggregator.revision)
+        if searchState.resultsToken == token { searching = false; return }
+        if searchState.resultsQuery != q {
+            searchState.windowStart = 0; searchState.windowCount = 400; searchState.anchorID = nil
+            searchState.resultsQuery = q
+        }
         searching = true
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
@@ -195,6 +208,7 @@ struct OnlineSearchView: View {
             let ranked = await Self.rank(catalogItems: catalogItems, query: q)
             if Task.isCancelled { return }
             results = ranked
+            searchState.resultsToken = q + "|" + String(aggregator.revision)
             searching = false
         }
     }
@@ -248,9 +262,13 @@ private struct UnifiedSearchCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             CoverTile {
-                CoverImage(url: item.coverURL, maxPixel: 320, resource: item.coverRequest) {
-                    Image(systemName: "book.closed")
-                        .font(.largeTitle).foregroundStyle(.white.opacity(0.4))
+                if case .catalog(let comic) = item {
+                    PluginComicCover(comic: comic)
+                } else {
+                    CoverImage(url: item.coverURL, maxPixel: 320, resource: item.coverRequest) {
+                        Image(systemName: "book.closed")
+                            .font(.largeTitle).foregroundStyle(.white.opacity(0.4))
+                    }
                 }
 
                 if case .catalog(let comic) = item, comic.canRead {

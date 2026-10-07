@@ -4,6 +4,53 @@ import Swifter
 
 @MainActor
 final class SourcePluginRuntimeTests: XCTestCase {
+    func testContinuationPublishesFirstBatchAndRetainsItIfLaterFetchFails() async throws {
+        for fails in [false, true] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let aggregator = CatalogAggregator(cacheDirectory: directory)
+            let next = URL(string: "https://fixture.invalid/catalog?page=2")!
+            let first = try SourcePluginContract.catalog("""
+                {"comics":[{"id":"one","title":"First"}],"continuationURL":"?page=2"}
+                """, plugin: plugin(), baseURL: url).catalog
+            XCTAssertEqual(first.continuationURL, next)
+            XCTAssertTrue(first.childCatalogs.isEmpty)
+            let second = try SourcePluginContract.catalog("""
+                {"comics":[{"id":"one","title":"First"},{"id":"two","title":"Second"}]}
+                """, plugin: plugin(), baseURL: next).catalog
+            await aggregator.start(key: "fixture", name: "Fixture", cacheKey: "fixture", continuation: { target in
+                XCTAssertEqual(target, next)
+                XCTAssertEqual(aggregator.catalog(forSourceKey: "fixture")?.comics.count, 1)
+                XCTAssertTrue(aggregator.isLoadingSource("fixture"))
+                if fails { throw SourcePluginFixtureRunner.Failure("Later page unavailable") }
+                return second
+            }) { first }.value
+            let visible = try XCTUnwrap(aggregator.catalog(forSourceKey: "fixture"))
+            XCTAssertEqual(visible.comics.count, fails ? 1 : 2)
+            XCTAssertEqual(visible.sourceURL, url)
+            XCTAssertFalse(aggregator.isLoadingSource("fixture"))
+            XCTAssertEqual(aggregator.sourceFailures.count, fails ? 1 : 0)
+            let snapshot = await CatalogSnapshotCache(directory: directory).load(key: "fixture")
+            XCTAssertEqual(snapshot?.comics.count, visible.comics.count)
+        }
+    }
+
+    func testContinuationRejectsUnsafeURLsAndStopsRepeatedURLs() async throws {
+        XCTAssertThrowsError(try SourcePluginContract.catalog("""
+            {"comics":[],"continuationURL":"file:///tmp/untrusted"}
+            """, plugin: plugin(), baseURL: url))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let aggregator = CatalogAggregator(cacheDirectory: directory)
+        let first = RemoteCatalog(name: "Fixture", sourceURL: url, comics: [], childCatalogs: [], continuationURL: url)
+        await aggregator.start(key: "fixture", name: "Fixture", cacheKey: "fixture", continuation: { _ in
+            XCTFail("Repeated URL must not be fetched")
+            return first
+        }) { first }.value
+        XCTAssertEqual(aggregator.sourceFailures.count, 1)
+        XCTAssertFalse(aggregator.isLoadingSource("fixture"))
+    }
+
     private let url = URL(string: "https://fixture.invalid/catalog")!
     private func plugin(_ id: String = "fixture") -> SourcePlugin {
         SourcePlugin(id: id, name: "Fixture", version: "1", homepage: "https://fixture.invalid/",
@@ -122,5 +169,48 @@ final class SourcePluginRuntimeTests: XCTestCase {
         }
         XCTAssertEqual(cache.compute(base: [comic("Old")], sort: .title, token: "1").comics[0].title, "Old")
         XCTAssertEqual(cache.compute(base: [comic("New")], sort: .title, token: "2").comics[0].title, "New")
+    }
+
+    func testIssueCoverCachePersistsProtectedResourcesAndSeparatesIssues() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let resource = PluginResourceRequest(url: URL(string: "https://cdn.example.com/issue2/1.jpg")!,
+            referrer: URL(string: "https://example.com/issue2")!, useBrowserCookies: true, pluginID: "fixture")
+        let cache = PluginIssueCoverCache(directory: directory)
+        cache.save(resource, key: "fixture:hash:issue2")
+        XCTAssertEqual(cache.remembered(key: "fixture:hash:issue2"), resource)
+        XCTAssertNil(cache.remembered(key: "fixture:hash:issue3"))
+        let reopened = PluginIssueCoverCache(directory: directory)
+        XCTAssertNil(reopened.remembered(key: "fixture:hash:issue2"))
+        let restored = reopened.load(key: "fixture:hash:issue2")
+        XCTAssertEqual(restored, resource)
+        XCTAssertEqual(reopened.remembered(key: "fixture:hash:issue2"), resource)
+        let otherIssue = reopened.load(key: "fixture:hash:issue3")
+        let updatedPlugin = reopened.load(key: "fixture:newhash:issue2")
+        XCTAssertNil(otherIssue)
+        XCTAssertNil(updatedPlugin)
+    }
+
+    func testBrowserRecoveryRetriesOnceAndCancellationPreventsStaleRetry() {
+        let recovery = SourceSessionRecovery()
+        var retries = 0
+        recovery.prepare { retries += 1 }
+        XCTAssertEqual(retries, 0)
+        recovery.browserClosed()
+        recovery.browserClosed()
+        XCTAssertEqual(retries, 1)
+        recovery.prepare { retries += 1 }
+        recovery.cancel()
+        recovery.browserClosed()
+        XCTAssertEqual(retries, 1)
+    }
+
+    func testHTTPErrorPresentationKeepsDetailsBelowConciseStatus() {
+        let detail = "Source JavaScript failed: Error: ReadComicsOnline returned HTTP 403 for https://example.com/comic (line 0)"
+        let presentation = SourceErrorPresentation(detail)
+        XCTAssertEqual(presentation.title, "Error 403")
+        XCTAssertEqual(presentation.detail, detail)
+        XCTAssertEqual(SourceErrorPresentation("HTTP 429 rate limited").title, "Error 429")
+        XCTAssertEqual(SourceErrorPresentation("Failed at https://example.com/403").title, "Couldn’t connect to source")
     }
 }

@@ -12,9 +12,12 @@ final class LibraryModel {
     private(set) var folders: [URL] = []
     private(set) var comics: [Comic] = []
     private(set) var isScanning = false
+    private(set) var coverRevision = 0
     private var hidden: Set<String> = []   // standardized paths removed from the library (kept on disk)
+    private let remoteHistory: RemoteReadingHistory
 
-    init() {
+    init(remoteHistory: RemoteReadingHistory = .shared) {
+        self.remoteHistory = remoteHistory
         folders = CentralStore.loadLibraryFolders()
         hidden = CentralStore.loadHiddenPaths()
     }
@@ -131,7 +134,52 @@ final class LibraryModel {
     /// Clear reading progress while keeping user chapter markers, unless explicitly requested.
     /// The comic file itself is never changed.
     func resetState(_ comic: Comic, removingChapters: Bool = false) {
+        clearReadingState(comic, removingChapters: removingChapters)
+        if comic.url.isFileURL {
+            scan()
+            refreshCovers([comic])
+        }
+    }
+
+    /// Reset every issue under this folder, including nested series.
+    func resetFolder(_ folder: URL, removingChapters: Bool = false) {
+        let prefix = folder.standardizedFileURL.path + "/"
+        let selected = comics.filter {
+            $0.url.isFileURL && ($0.url.standardizedFileURL == folder.standardizedFileURL
+                || $0.url.standardizedFileURL.path.hasPrefix(prefix))
+        }
+        for comic in selected { clearReadingState(comic, removingChapters: removingChapters) }
+        scan()
+        refreshCovers(selected)
+    }
+
+    private func refreshCovers(_ selected: [Comic]) {
+        Task {
+            // Bound archive extraction so resetting a large folder remains responsive.
+            await withTaskGroup(of: Void.self) { group in
+                var iterator = selected.makeIterator()
+                func enqueue(_ comic: Comic) {
+                    group.addTask {
+                        var urls = comic.isArchive ? ArchiveCover.cachedURLs(for: comic.url) : []
+                        if let cover = comic.coverURL { urls.append(cover) }
+                        for url in urls { await ThumbnailCache.shared.invalidate(url) }
+                        let fresh = comic.isArchive ? await ArchiveCover.refresh(for: comic.url) : comic.coverURL
+                        if let fresh { urls.append(fresh) }
+                        for url in Set(urls) { await ThumbnailCache.shared.invalidate(url) }
+                    }
+                }
+                for _ in 0..<4 { if let comic = iterator.next() { enqueue(comic) } }
+                while await group.next() != nil {
+                    if let comic = iterator.next() { enqueue(comic) }
+                }
+            }
+            coverRevision += 1
+        }
+    }
+
+    private func clearReadingState(_ comic: Comic, removingChapters: Bool) {
         let key = CentralStore.key(for: comic.url)
+        if AppModel.shared.currentComicKey == key { AppModel.shared.flushCurrentState() }
         let stateURL = CentralStore.stateURL(for: key)
         if removingChapters {
             try? FileManager.default.removeItem(at: stateURL)
@@ -144,7 +192,7 @@ final class LibraryModel {
                 try? data.write(to: stateURL, options: .atomic)
             }
         }
-        scan()   // progress-based Smart Collections refresh immediately
+        if comic.isRemote { remoteHistory.remove(comic.url) }
     }
 
     /// Remove a comic from the library. `fromDisk == false` hides it (kept on disk, filtered from
@@ -162,6 +210,24 @@ final class LibraryModel {
         try? FileManager.default.removeItem(at: CentralStore.stateURL(for: CentralStore.key(for: comic.url)))
         scan()
         return true
+    }
+
+    /// Move a selected series folder as one item, including unscanned files and subfolders.
+    func deleteFolder(_ url: URL, moveToTrash: (URL) throws -> Void = {
+        try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+    }) throws {
+        guard url.isFileURL, try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
+            throw NSError(domain: "ComicViewer", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "The selected item is not a local folder."])
+        }
+        let removed = comics.filter { Self.relativeComponents($0.url, under: url.standardizedFileURL) != nil }
+        try moveToTrash(url)
+        let removedIDs = Set(removed.map(\.id))
+        comics.removeAll { removedIDs.contains($0.id) }
+        for comic in removed {
+            try? FileManager.default.removeItem(at: CentralStore.stateURL(for: CentralStore.key(for: comic.url)))
+        }
+        if !removed.isEmpty { scan() }
     }
 
     // MARK: - Streamable-ZIP conversion (one-time library maintenance)
@@ -204,8 +270,8 @@ final class LibraryModel {
             return p.page >= 3 && p.page < p.count                        // read some, not finished
         }
         // Streamed remote issues aren't scanned into `comics`; fold in the generic remote reading history.
-        let remote = RemoteReadingHistory.shared.continueComics()
-        return (started + remote)
+        let remote = remoteHistory.continueComics()
+        return uniqueComics(started + remote)
             .map { ($0, CentralStore.lastReadDate(forKey: CentralStore.key(for: $0.url)) ?? .distantPast) }
             .sorted { $0.1 > $1.1 }
             .prefix(15)
@@ -215,7 +281,7 @@ final class LibraryModel {
     /// Comics with saved reading activity, newest first. Unlike Continue Reading, finished
     /// comics remain here so the shelf acts as a lightweight reading history.
     var recentlyRead: [Comic] {
-        comics
+        uniqueComics(comics + remoteHistory.recentlyReadComics())
             .compactMap { comic -> (Comic, Date)? in
                 guard comic.progress != nil,
                       let date = CentralStore.lastReadDate(forKey: CentralStore.key(for: comic.url))
@@ -225,6 +291,11 @@ final class LibraryModel {
             .sorted { $0.1 > $1.1 }
             .prefix(20)
             .map(\.0)
+    }
+
+    private func uniqueComics(_ items: [Comic]) -> [Comic] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.id).inserted }
     }
 
     // MARK: Scanning

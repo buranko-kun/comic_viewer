@@ -312,7 +312,7 @@ final class ArchiveOpener {
             return matches.count == 1 ? matches[0] : nil
         }
 
-        let requestedStartIdx = startIndex ?? state?.lastPage.flatMap { last in
+        let requestedStartIdx = startIndex.map { $0 < 0 ? imageEntries.count + $0 : $0 } ?? state?.lastPage.flatMap { last in
             entry(forStoredKey: last).flatMap {
                 imageEntries.firstIndex(of: $0)
             }

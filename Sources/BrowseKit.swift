@@ -1,5 +1,7 @@
 import SwiftUI
 import CoreGraphics
+import Observation
+import AppKit
 
 /// Shared look-and-feel for every cover grid in the app — Library, Online catalogs, and Collections.
 /// Centralizing the *visual* layer here keeps all grids
@@ -465,23 +467,239 @@ struct SectionHeading: View {
 struct NavigationSearchField: View {
     let prompt: String
     @Binding var text: String
+    var onlineSuggestions = false
+    var suggestionTitles: [String] = []
     var submit: () -> Void = {}
     @FocusState private var focused: Bool
+    @State private var suggestionsDismissed = true
+    @State private var showingHistory = false
+    @State private var history = OnlineSearchHistory.shared
+    @State private var clickRegions = SearchDropdownClickRegions()
+
+    private var suggestions: [String] {
+        showingHistory ? Array(history.recent.prefix(8))
+            : (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : history.suggestions(for: text, titles: suggestionTitles))
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField(prompt, text: $text)
-                .textFieldStyle(.plain).focused($focused).onSubmit(submit)
+                .textFieldStyle(.plain).focused($focused).onSubmit {
+                    if onlineSuggestions { history.record(text); suggestionsDismissed = true }
+                    submit()
+                }
                 .accessibilityLabel(prompt)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Clear search")
             }
+            if onlineSuggestions {
+                Button { focused = true; showingHistory = true; suggestionsDismissed = false } label: { Image(systemName: "clock.arrow.circlepath") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Search history")
+                    .pointingHandCursor()
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .top) {
+            if onlineSuggestions && focused && !suggestionsDismissed && !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(showingHistory ? "Recent searches" : "Suggestions")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        if showingHistory && !history.recent.isEmpty {
+                            Button("Clear history") { history.clear() }
+                                .font(.caption).buttonStyle(.plain).foregroundStyle(.secondary)
+                                .pointingHandCursor()
+                                .background(SearchDropdownClickRegion(regions: clickRegions, action: { history.clear() }))
+                        }
+                    }.padding(.horizontal, 8).padding(.vertical, 4)
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        SearchSuggestionRow(title: suggestion, recent: showingHistory) {
+                            choose(suggestion)
+                        }
+                        .background(SearchDropdownClickRegion(regions: clickRegions, action: { choose(suggestion) }))
+                    }
+                }
+                .padding(8)
+                .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.12)))
+                .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(SearchDropdownClickRegion(regions: clickRegions))
+                .offset(y: 40)
+            }
+        }
+        .background(SearchOutsideClickArea(active: onlineSuggestions && focused, regions: clickRegions,
+            insideFieldClick: {
+                showingHistory = true; suggestionsDismissed = false
+            }) {
+            showingHistory = false; suggestionsDismissed = true; focused = false
+        })
+        .onChange(of: text) { _, value in
+            showingHistory = false
+            suggestionsDismissed = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        .onChange(of: focused) { _, value in
+            if value {
+                if !showingHistory { suggestionsDismissed = true }
+            } else if onlineSuggestions {
+                showingHistory = false; suggestionsDismissed = true; history.record(text)
+            }
+        }
+        .onDisappear { if onlineSuggestions { history.record(text) } }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            if onlineSuggestions { showingHistory = false; suggestionsDismissed = true; focused = false }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .focusNavigationSearch)) { _ in focused = true }
+    }
+
+    private func choose(_ suggestion: String) {
+        text = suggestion
+        history.record(suggestion)
+        showingHistory = false
+        suggestionsDismissed = true
+        focused = false
+        submit()
+    }
+
+}
+
+/// Native geometry remains usable when SwiftUI draws the dropdown beyond its toolbar's bounds.
+@MainActor
+final class SearchDropdownClickRegions {
+    var views: [SearchDropdownClickRegion.RegionView] = []
+    func containing(_ event: NSEvent) -> [SearchDropdownClickRegion.RegionView] {
+        views.filter { view in
+            view.window === event.window && view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+        }
+    }
+}
+
+struct SearchDropdownClickRegion: NSViewRepresentable {
+    let regions: SearchDropdownClickRegions
+    var action: (() -> Void)? = nil
+    final class RegionView: NSView {
+        var action: (() -> Void)?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+    func makeNSView(context: Context) -> RegionView {
+        let view = RegionView()
+        regions.views.append(view)
+        context.coordinator.regions = regions
+        return view
+    }
+    func updateNSView(_ view: RegionView, context: Context) { view.action = action }
+    final class Coordinator { weak var regions: SearchDropdownClickRegions? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    static func dismantleNSView(_ view: RegionView, coordinator: Coordinator) {
+        coordinator.regions?.views.removeAll { $0 === view }
+    }
+}
+
+/// macOS buttons can leave a text field focused, so focus changes alone cannot dismiss this menu.
+struct SearchOutsideClickArea: NSViewRepresentable {
+    let active: Bool
+    let regions: SearchDropdownClickRegions
+    var insideFieldClick: () -> Void = {}
+    let dismiss: () -> Void
+
+    final class AreaView: NSView {
+        var active = false
+        var regions: SearchDropdownClickRegions?
+        var dismiss: () -> Void = {}
+        var insideFieldClick: () -> Void = {}
+        private var monitor: Any?
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stop()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self else { return event }
+                return self.handle(event)
+            }
+        }
+        func handle(_ event: NSEvent) -> NSEvent? {
+            guard active, let window else { return event }
+            guard event.window === window else { dismiss(); return event }
+            let inside = regions?.containing(event) ?? []
+            if event.type == .leftMouseDown, let action = inside.compactMap(\.action).first {
+                // Apply the selection before dismissal; don't forward the click to the grid underneath.
+                action()
+                return nil
+            }
+            let point = convert(event.locationInWindow, from: nil)
+            if bounds.contains(point) {
+                if event.type == .leftMouseDown { insideFieldClick() }
+            } else if inside.isEmpty { dismiss() }
+            return event
+        }
+        func stop() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+    }
+    func makeNSView(context: Context) -> AreaView { AreaView() }
+    func updateNSView(_ view: AreaView, context: Context) {
+        view.active = active; view.regions = regions; view.dismiss = dismiss; view.insideFieldClick = insideFieldClick
+    }
+    static func dismantleNSView(_ view: AreaView, coordinator: ()) { view.stop() }
+}
+
+private struct SearchSuggestionRow: View {
+    let title: String
+    let recent: Bool
+    let action: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: recent ? "clock" : "magnifyingglass").foregroundStyle(.secondary)
+                Text(title).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .background(.white.opacity(hovering ? 0.08 : 0), in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain).pointingHandCursor().onHover { hovering = $0 }
+    }
+}
+
+@MainActor
+@Observable
+final class OnlineSearchHistory {
+    static let shared = OnlineSearchHistory()
+    private let defaults: UserDefaults
+    private let key = "online.recentSearches"
+    private(set) var recent: [String]
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        recent = Array((defaults.stringArray(forKey: key) ?? []).prefix(20))
+    }
+    func record(_ query: String) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        recent.removeAll { $0.caseInsensitiveCompare(query) == .orderedSame }
+        recent.insert(query, at: 0); recent = Array(recent.prefix(20))
+        defaults.set(recent, forKey: key)
+    }
+    func clear() { recent = []; defaults.removeObject(forKey: key) }
+    func suggestions(for query: String, titles: [String]) -> [String] {
+        let normalized = SearchRank.normalize(query)
+        guard !normalized.isEmpty else { return Array(recent.prefix(8)) }
+        var seen = Set<String>(), matches: [String] = []
+        for title in titles {
+            let value = SearchRank.normalize(title)
+            guard value.contains(normalized), seen.insert(value).inserted else { continue }
+            matches.append(title)
+            if matches.count == 8 { break }
+        }
+        return matches
     }
 }
 

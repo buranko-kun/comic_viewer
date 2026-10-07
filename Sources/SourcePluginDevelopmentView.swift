@@ -13,15 +13,15 @@ enum PluginComicOpener {
         if comic.opensCatalog {
             let catalog = try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: url)
             try Task.checkCancellation()
-            BrowseState.shared.clearSearch()
-            BrowseState.shared.resetScroll()
             if case .onlineSearch = origin {
-                BrowseState.shared.stack = [catalog]
-                BrowseState.shared.returnToSearch = true
+                BrowseState.shared.beginExternal(catalog, returningTo: .onlineSearch)
+            } else if case .collections = origin {
+                BrowseState.shared.beginExternal(catalog, returningTo: .collections)
+            } else if case .home = origin {
+                BrowseState.shared.beginExternal(catalog, returningTo: .library)
             } else {
-                BrowseState.shared.stack.append(catalog)
+                BrowseState.shared.push(catalog)
             }
-            BrowseState.shared.revision += 1
             router.showOnline()
         } else if comic.canRead {
             let resources = try await SourcePluginRuntime.shared.pageResources(for: plugin, comic: comic)
@@ -29,7 +29,7 @@ enum PluginComicOpener {
             try Task.checkCancellation()
             guard !pages.isEmpty else { throw SourcePluginRuntime.PluginError.invalidResult }
             let readingComic = Comic(url: url, series: comic.series ?? comic.title, isArchive: false,
-                                     coverURL: comic.coverRequest.map { PluginResourceRegistry.shared.boundURL(for: $0) } ?? pages.first, pageCount: pages.count,
+                                     coverURL: plugin.capabilities?.contains("first-page-covers") == true ? pages.first : (comic.coverRequest.map { PluginResourceRegistry.shared.boundURL(for: $0) } ?? pages.first), pageCount: pages.count,
                                      progress: nil, chapterCount: 0, metaTitle: comic.title,
                                      tooltip: comic.description, remotePages: pages)
             RemoteReadingHistory.shared.record(readingComic)

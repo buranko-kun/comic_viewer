@@ -48,6 +48,7 @@ struct ChapterGridOverlay: View {
                     Button { onClose() } label: { Image(systemName: "xmark.circle.fill").font(.title2) }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
+                        .pointingHandCursor()
                 }
 
                 if entries.isEmpty {
@@ -77,12 +78,12 @@ struct ChapterGridOverlay: View {
                         HStack(spacing: 18) {
                             Button { pageIndex = max(0, pageIndex - 1) } label: {
                                 Image(systemName: "chevron.left")
-                            }.disabled(pageIndex == 0)
+                            }.disabled(pageIndex == 0).pointingHandCursor()
                             Text("Page \(min(pageIndex, pageCount - 1) + 1) / \(pageCount)")
                                 .monospacedDigit()
                             Button { pageIndex = min(pageCount - 1, pageIndex + 1) } label: {
                                 Image(systemName: "chevron.right")
-                            }.disabled(pageIndex >= pageCount - 1)
+                            }.disabled(pageIndex >= pageCount - 1).pointingHandCursor()
                         }
                         .buttonStyle(.plain)
                         .font(.title3)

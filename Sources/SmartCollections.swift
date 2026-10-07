@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import CoreGraphics
 
-/// Built-in, dynamic collections derived from the current local library.
+/// Built-in, dynamic collections derived from the library and streamed reading history.
 /// Smart collections are intentionally not persisted: their contents always reflect current library state.
 enum SmartCollectionKind: String, CaseIterable, Identifiable {
     case continueReading
@@ -48,15 +48,23 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable {
     }
 
     @MainActor
+    static func homeShelves(in library: LibraryModel) -> [(kind: SmartCollectionKind, comics: [Comic])] {
+        allCases.compactMap { kind in
+            let comics = kind.comics(in: library)
+            return comics.isEmpty ? nil : (kind, comics)
+        }
+    }
+
+    @MainActor
     func comics(in library: LibraryModel) -> [Comic] {
         let local = library.comics.filter { !$0.isRemote }
 
         switch self {
         case .continueReading:
-            return library.continueReading.filter { !$0.isRemote }
+            return library.continueReading
 
         case .recentlyRead:
-            return library.recentlyRead.filter { !$0.isRemote }
+            return library.recentlyRead
 
         case .unread:
             return local
@@ -218,9 +226,11 @@ struct LocalComicCover: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: (url?.path ?? "") + (archive?.path ?? "")) {
+        .task(id: (url?.absoluteString ?? "") + (archive?.path ?? "")) {
             if let url {
-                image = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 320)
+                image = url.isFileURL
+                    ? await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 320)
+                    : await RemoteImageCache.shared.image(for: url, maxPixel: 320)
             } else if let archive {
                 let source = await ArchiveCover.make(for: archive)
                 if let source {
@@ -260,9 +270,7 @@ struct SmartCollectionItemsView: View {
                         ) {
                             ForEach(comics) { comic in
                             Button {
-                                AppRouter.shared.readerOrigin = .collections
-                                AppModel.shared.open(urls: [comic.url])
-                                AppRouter.shared.route = .reader
+                                AppRouter.shared.openComic(comic, origin: .collections)
                             } label: {
                                 VStack(alignment: .leading, spacing: 6) {
                                     CoverTile {
@@ -287,12 +295,14 @@ struct SmartCollectionItemsView: View {
                             .buttonStyle(.plain)
                             .contextMenu {
                                 Button("Read") {
-                                    AppRouter.shared.readerOrigin = .collections
-                                    AppModel.shared.open(urls: [comic.url])
-                                    AppRouter.shared.route = .reader
+                                    AppRouter.shared.openComic(comic, origin: .collections)
                                 }
-                                Button("Open in Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([comic.url])
+                                if comic.url.isFileURL {
+                                    Button("Open in Finder") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([comic.url])
+                                    }
+                                } else {
+                                    Button("Open source website") { NSWorkspace.shared.open(comic.url) }
                                 }
                             }
                         }

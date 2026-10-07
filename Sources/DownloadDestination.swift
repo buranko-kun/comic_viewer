@@ -89,9 +89,6 @@ struct DownloadQueueButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .help(manager.activeCount > 0
-              ? "\(manager.activeCount) active or queued download\(manager.activeCount == 1 ? "" : "s")"
-              : "Downloads")
         .pointingHandCursor()
         .sheet(isPresented: $showDownloads) {
             DownloadsView()

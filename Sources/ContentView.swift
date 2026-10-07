@@ -232,7 +232,7 @@ struct ContentView: View {
             .dropDestination(for: URL.self) { urls, _ in
                 handleDrop(urls)
             }
-            .navigationTitle(model.currentName ?? "Comic Viewer")
+            .navigationTitle(model.comicTitle ?? "Comic Viewer")
     }
 
     private var readerSurface: some View {
@@ -245,7 +245,8 @@ struct ContentView: View {
                         .background(.black.opacity(0.75), in: Capsule())
                 }
                 .buttonStyle(.plain).foregroundStyle(.white)
-                .help("Return to where you opened this comic (Esc)")
+                .help("Return to where you opened this comic")
+                .pointingHandCursor()
                 .opacity(readerNavigationVisible ? 1 : 0)
                 .frame(width: 130, height: 56)
                 .contentShape(Rectangle())
@@ -1020,6 +1021,33 @@ struct ContentView: View {
         return comics[index + 1]
     }
 
+    private func adjacentIssue(offset: Int) -> Comic? {
+        guard let current = currentLibraryComic else { return nil }
+        let parent = current.url.deletingLastPathComponent().standardizedFileURL
+        let siblings = library.comics
+            .filter { $0.url.deletingLastPathComponent().standardizedFileURL == parent }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        guard let currentIndex = siblings.firstIndex(where: {
+            CentralStore.key(for: $0.url) == CentralStore.key(for: current.url)
+        }) else { return nil }
+        let targetIndex = currentIndex + offset
+        return siblings.indices.contains(targetIndex) ? siblings[targetIndex] : nil
+    }
+
+    private func navigateIssueBoundary(backward: Bool) {
+        guard model.items.indices.contains(model.index) else { return }
+        if backward, model.index == 0, let previous = adjacentIssue(offset: -1) {
+            router.openAdjacentIssue(previous, startIndex: -1)
+        } else if !backward, model.index == model.items.count - 1,
+                  let next = adjacentIssue(offset: 1) {
+            router.openAdjacentIssue(next, startIndex: 0)
+        } else if backward {
+            model.prev()
+        } else {
+            model.next()
+        }
+    }
+
     private func currentComicKeyForTimeline(_ comic: Comic) -> String {
         CentralStore.key(for: comic.url)
     }
@@ -1298,6 +1326,13 @@ struct ContentView: View {
     /// where possible so they are less dependent on physical key positions / keyboard layout.
     private func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
+        if flags.contains(.command), !flags.contains(.shift), !flags.contains(.option), !flags.contains(.control),
+           event.charactersIgnoringModifiers?.lowercased() == "c",
+           router.route == .reader, NSApp.modalWindow == nil,
+           !(NSApp.keyWindow?.firstResponder is NSTextView) {
+            flashToast(model.copyCurrentPage() ? "Page copied" : "Wait for the page to finish loading")
+            return true
+        }
         guard !flags.contains(.command) else { return false }
 
         let shift = flags.contains(.shift)
@@ -1335,28 +1370,26 @@ struct ContentView: View {
         let rightArrowAdvances = readerSettings.readingDirection.rightArrowAdvances
 
         switch event.keyCode {
-        case 53: // Esc: close help / fullscreen / library
+        case 53: // Esc leaves the reader while preserving the window's fullscreen state.
             if router.showShortcuts {
                 withAnimation(.easeInOut(duration: 0.12)) {
                     router.showShortcuts = false
                 }
                 return true
             }
-
-            if let window = event.window ?? NSApp.keyWindow,
-               window.styleMask.contains(.fullScreen) {
-                window.toggleFullScreen(nil)
-                return true
+            if router.route == .reader {
+                router.escapeBack()
             }
-
-            AppRouter.shared.escapeBack()
+            // Consume Escape so macOS does not exit fullscreen implicitly.
             return true
 
         case 123: // Left
             if shift {
                 flashToast(rightArrowAdvances ? model.prevChapter() : model.nextChapter())
             } else {
-                panOrNavigate(dx: 1) { rightArrowAdvances ? model.prev() : model.next() }
+                panOrNavigate(dx: 1) {
+                    navigateIssueBoundary(backward: rightArrowAdvances)
+                }
             }
             return true
 
@@ -1364,7 +1397,9 @@ struct ContentView: View {
             if shift {
                 flashToast(rightArrowAdvances ? model.nextChapter() : model.prevChapter())
             } else {
-                panOrNavigate(dx: -1) { rightArrowAdvances ? model.next() : model.prev() }
+                panOrNavigate(dx: -1) {
+                    navigateIssueBoundary(backward: !rightArrowAdvances)
+                }
             }
             return true
 
@@ -1413,16 +1448,20 @@ struct ContentView: View {
             }
             return true
 
-        case "1": // Start of current chapter
+        case "1": // Start of the comic
+            model.first()
+            return true
+
+        case "2": // Start of current chapter
             model.firstOfChapter()
+            return true
+
+        case "9": // End of current chapter
+            model.lastOfChapter()
             return true
 
         case "c": // Toggle chapter
             flashToast(model.toggleChapter())
-            return true
-
-        case "f": // Fullscreen
-            toggleFullScreen(event.window)
             return true
 
         case "h": // Caption
@@ -1445,8 +1484,8 @@ struct ContentView: View {
             zoomBy(0.8)
             return true
 
-        case "0": // Start of whole book
-            model.first()
+        case "0": // End of the comic
+            model.last()
             return true
 
         case "/": // Shift + / = help
@@ -1465,9 +1504,6 @@ struct ContentView: View {
         return false
     }
 
-    private func toggleFullScreen(_ window: NSWindow?) {
-        (window ?? NSApp.keyWindow)?.toggleFullScreen(nil)
-    }
 }
 
 /// Hides the mouse pointer after exactly 3 seconds of mouse inactivity while the comic reader

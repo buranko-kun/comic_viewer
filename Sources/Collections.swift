@@ -27,12 +27,21 @@ struct CollectionItem: Identifiable, Codable, Hashable {
     var source: String?       // online source name
     var mirrors: [String]     // online download links
     var mustRead: Bool
+    /// Preserve the source's in-app action and protected cover request for saved entries.
+    var remoteComic: RemoteComic? = nil
+
+    func resolvedRemote(in comics: [RemoteComic]) -> RemoteComic? {
+        if let remoteComic { return remoteComic }
+        guard kind == .online, let page else { return nil }
+        return comics.first { $0.pageURL?.absoluteString == page }
+    }
 
     init(remote c: RemoteComic) {
         id = c.id; kind = .online; title = c.title
         cover = c.coverURL?.absoluteString; page = c.pageURL?.absoluteString
         path = nil; source = c.sourceName
         mirrors = c.mirrors.map(\.absoluteString); mustRead = c.mustRead
+        remoteComic = c
     }
 
     init(library c: Comic) {
@@ -407,6 +416,7 @@ struct RenameCollectionSheet: View {
 /// Renders a collection item's cover from either the remote cache (https) or the thumbnail
 /// cache (local file), matching the rest of the app's cover look.
 struct CollectionCover: View {
+    @Environment(LibraryModel.self) private var library
     let item: CollectionItem
     @State private var cg: CGImage?
 
@@ -425,7 +435,7 @@ struct CollectionCover: View {
                 Image(systemName: placeholderIcon).font(.largeTitle).foregroundStyle(.white.opacity(0.4))
             }
         }
-        .task(id: item.id + (item.path ?? "")) {
+        .task(id: item.id + (item.path ?? "") + "|\(library.coverRevision)") {
             // Prefer a stored cover URL (online https, or a resolved library image path).
             if let s = item.cover, let u = URL(string: s) {
                 cg = u.isFileURL ? await ThumbnailCache.shared.thumbnail(for: u, maxPixel: 320)
@@ -529,6 +539,9 @@ struct CollectionsView: View {
     @State private var showNew = false
     @State private var renaming: Collection?
     @State private var pendingDelete: Collection?
+    @State private var openTask: Task<Void, Never>?
+    @State private var opening = false
+    @State private var openError: String?
     @AppStorage("collections.displayMode") private var displayModeRawValue = CollectionDisplayMode.grid.rawValue
     @AppStorage("collections.order") private var collectionOrderRawValue = CollectionOrder.titleAscending.rawValue
     @AppStorage("collections.itemOrder") private var itemOrderRawValue = CollectionItemOrder.added.rawValue
@@ -584,12 +597,19 @@ struct CollectionsView: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 0) {
                 topBar
+                if opening {
+                    HStack { ProgressView(); Text("Opening source…"); Button("Cancel") { openTask?.cancel(); opening = false } }
+                        .padding(12)
+                }
                 Divider().overlay(.white.opacity(0.12))
                 content
             }
         }
         .tint(.white)
         .sheet(isPresented: $showNew) { NewCollectionSheet(item: nil) }
+        .alert("Couldn’t open comic", isPresented: Binding(get: { openError != nil }, set: { if !$0 { openError = nil } })) {
+            Button("OK", role: .cancel) { openError = nil }
+        } message: { Text(openError ?? "") }
         .sheet(item: $renaming) { RenameCollectionSheet(collection: $0) }
         .confirmationDialog("Delete collection?", isPresented: .init(
             get: { pendingDelete != nil },
@@ -607,14 +627,15 @@ struct CollectionsView: View {
         .onAppear {
             keyMonitor.start(key: handleKey)
         }
-        .onDisappear { keyMonitor.stop() }
+        .onDisappear { keyMonitor.stop(); openTask?.cancel() }
         .onChange(of: router.selectedCollection) { _, _ in searchText = "" }
     }
 
     private func handleKey(_ e: NSEvent) -> Bool {
         guard !e.modifierFlags.contains(.command), e.keyCode == 53, NSApp.modalWindow == nil
         else { return false }
-        return router.escapeBack()
+        router.escapeBack()
+        return true
     }
 
     // MARK: Top bar
@@ -640,7 +661,8 @@ struct CollectionsView: View {
         SectionToolbar {
             HStack(spacing: 10) {
                 if current != nil {
-                    Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }.help("Back to Collections")
+                    Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }
+                        .help("Back to Collections").pointingHandCursor()
                 }
                 SectionHeading(title: topBarTitle, detail: topBarSubtitle)
             }
@@ -832,7 +854,22 @@ struct CollectionsView: View {
     private func open(_ item: CollectionItem) {
         switch item.kind {
         case .online:
-            if let s = item.page, let u = URL(string: s) { NSWorkspace.shared.open(u) }
+            openTask?.cancel(); opening = true; openError = nil
+            openTask = Task { @MainActor in
+                do {
+                    if item.remoteComic == nil && !CatalogAggregator.shared.loadedOnce {
+                        await CatalogAggregator.shared.loadRoots()
+                    }
+                    try Task.checkCancellation()
+                    let candidates = CatalogAggregator.shared.comics + BrowseState.shared.stack.flatMap(\.comics)
+                    if let comic = item.resolvedRemote(in: candidates) {
+                        try await PluginComicOpener.open(comic, router: router, origin: .collections)
+                    } else if let page = item.page, let url = URL(string: page) { NSWorkspace.shared.open(url) }
+                } catch {
+                    if !Task.isCancelled { openError = error.localizedDescription }
+                }
+                if !Task.isCancelled { opening = false }
+            }
         case .library:
             guard let p = item.path else { return }
             router.readerOrigin = .collections

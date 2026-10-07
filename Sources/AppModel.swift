@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AppKit
 
 /// Application-level facade.
 ///
@@ -31,6 +32,7 @@ final class AppModel {
     var canRetryPage: Bool { reader.canRetryPage }
     func retryPage() { reader.retryPage() }
     var openingName: String? { reader.openingName }
+    var comicTitle: String? { reader.comicTitle }
     var chapters: Set<String> { reader.chapters }
     var chapterNames: [String: String] { reader.chapterNames }
     var counter: String { reader.counter }
@@ -52,6 +54,13 @@ final class AppModel {
 
     func goTo(index: Int) { reader.goTo(index: index) }
     func firstOfChapter() { reader.firstOfChapter() }
+    func lastOfChapter() { reader.lastOfChapter() }
+
+    @discardableResult
+    func copyCurrentPage() -> Bool {
+        guard !reader.isLoadingPage, let image = reader.current else { return false }
+        return PageClipboard.copy(image.cgImage)
+    }
 
     @discardableResult
     func toggleChapter() -> String { reader.toggleChapter() }
@@ -79,5 +88,18 @@ final class AppModel {
         sourceOpener.cancel()
         reader.cancel()
         Task { await ArchiveSessionManager.shared.cleanup() }
+    }
+}
+
+@MainActor
+enum PageClipboard {
+    static func copy(_ image: CGImage, to pasteboard: NSPasteboard = .general) -> Bool {
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        pasteboard.clearContents()
+        pasteboard.declareTypes([.png, .tiff], owner: nil)
+        let copied = pasteboard.setData(png, forType: .png)
+        if let tiff = bitmap.tiffRepresentation { _ = pasteboard.setData(tiff, forType: .tiff) }
+        return copied
     }
 }

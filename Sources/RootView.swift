@@ -28,7 +28,7 @@ final class AppRouter {
     private(set) var selectedComicOrigin: ReaderOrigin = .home
 
 
-    /// Where the reader was opened from, so Escape returns to the right context (its series menu)
+    /// Where the reader was opened from, so the reader's Back button returns to the right context
     /// instead of always dropping to Home — matters when opening from the "Continue Reading" shelf.
     enum ReaderOrigin {
         case home                       // default: back to the Home library
@@ -72,13 +72,25 @@ final class AppRouter {
         }
     }
 
+    /// Move between adjacent local issues without returning to the chapter grid. A negative
+    /// page index starts from the end of the issue (`-1` means its last page).
+    func openAdjacentIssue(_ comic: Comic, startIndex: Int) {
+        let parent = comic.url.deletingLastPathComponent().standardizedFileURL
+        let returnPath = path.last?.standardizedFileURL == parent ? path : [parent]
+        readerOrigin = .library(path: returnPath)
+        selectedComic = nil
+        path = returnPath
+        AppModel.shared.open(urls: [comic.url], startIndex: startIndex)
+        route = .reader
+    }
+
     /// Back out of the chapter level to the folder listing.
     func closeComic() {
         selectedComic = nil
         selectedComicOrigin = .home
     }
 
-    /// Open a comic (issue) from the library in the reader (resumes at last page). By default Escape
+    /// Open a comic (issue) from the library in the reader (resumes at last page). By default Back
     /// returns to wherever the library currently is (`.home`); callers that open from a context-less
     /// place (a Home shelf) set `readerOrigin` afterwards via `openFromShelf`.
     func openComic(_ comic: Comic, origin: ReaderOrigin = .home) {
@@ -89,7 +101,7 @@ final class AppRouter {
     }
 
     /// Open a comic straight to reading from a Home shelf ("Continue Reading"), remembering its
-    /// context so Escape returns to the generic Online browser for streamed comics, or the containing
+    /// context so Back returns to the generic Online browser for streamed comics, or the containing
     /// library folder for a local comic.
     func openFromShelf(_ comic: Comic) {
         openComic(comic)
@@ -148,10 +160,7 @@ final class AppRouter {
     func showBrowse() { route = .browse }
 
     func showOnlineRoot() {
-        BrowseState.shared.stack = []
-        BrowseState.shared.returnToSearch = false
-        BrowseState.shared.clearSearch()
-        BrowseState.shared.resetScroll()
+        BrowseState.shared.resetNavigation()
         route = .browse
     }
 
@@ -165,7 +174,7 @@ final class AppRouter {
         route = .collections
     }
 
-    /// Go up one level (Escape): reader/browse → library, chapter level → folder listing, then
+    /// Go up one level: reader/browse → library, chapter level → folder listing, then
     /// pop the folder path one step. At home there's nothing above, so it's a no-op. Returns
     /// true when it actually navigated. (The Browse view handles its own in-feed back stack.)
     @discardableResult
@@ -173,7 +182,7 @@ final class AppRouter {
         withAnimation(Self.backSlide) {
             switch route {
             case .reader:
-                // Escape returns to the context the reader was opened from (its series menu).
+                // Back returns to the context the reader was opened from (its series menu).
                 switch readerOrigin {
                 case .library(let p):
                     readerOrigin = .home
@@ -210,12 +219,7 @@ final class AppRouter {
             case .browse:
                 let browse = BrowseState.shared
                 if !browse.stack.isEmpty {
-                    browse.stack.removeLast()
-                    browse.clearSearch(); browse.resetScroll()
-                    if browse.stack.isEmpty && browse.returnToSearch {
-                        browse.returnToSearch = false
-                        route = .onlineSearch
-                    }
+                    if let destination = browse.pop() { route = destination }
                 } else { showHome() }
                 return true
             case .local:
@@ -245,10 +249,37 @@ final class AppRouter {
     static let backSlide: Animation = .easeInOut(duration: 0.3)
 }
 
+/// Keeps the native title bar in sync with the reader without adding another toolbar.
+private struct ComicWindowTitle: NSViewRepresentable {
+    let title: String?
+
+    final class TitleView: NSView {
+        var comicTitle: String? { didSet { updateTitle() } }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            updateTitle()
+        }
+        func updateTitle() {
+            guard let window else { return }
+            window.title = comicTitle ?? "Comic Viewer"
+            window.titleVisibility = comicTitle == nil ? .hidden : .visible
+        }
+    }
+
+    func makeNSView(context: Context) -> TitleView {
+        let view = TitleView()
+        view.comicTitle = title
+        return view
+    }
+    func updateNSView(_ view: TitleView, context: Context) { view.comicTitle = title }
+}
+
 /// Switches between the Library grid and the Reader.
 struct RootView: View {
+    @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
     @Environment(LibraryModel.self) private var library
+    @State private var appKeyMonitor = KeyMonitor()
     /// Covers the first-frame layout (small window + placeholder cover icons) until the window
     /// is maximized and the initial scan settles, so launch doesn't look broken.
     @State private var showSplash = true
@@ -291,7 +322,12 @@ struct RootView: View {
                 AppNavigationShell { routedContent }
             }
         }
-        .onAppear { if router.route == .library { maximizeWindow() } }
+        .background(ComicWindowTitle(title: router.route == .reader ? model.comicTitle : nil))
+        .onAppear {
+            appKeyMonitor.start(key: handleAppKey)
+            if router.route == .library { maximizeWindow() }
+        }
+        .onDisappear { appKeyMonitor.stop() }
         .onChange(of: router.route) { _, r in if r != .reader { maximizeWindow() } }
         // The reader draws its own (rotation-aware) copy; here we cover library/online.
         .overlay { if router.showShortcuts && router.route != .reader {
@@ -305,6 +341,18 @@ struct RootView: View {
             try? await Task.sleep(for: .seconds(1.2))
             withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
         }
+    }
+
+    /// F toggles the app window's fullscreen state from every section, not only the reader.
+    /// Escape remains owned by the active screen so it can pop that screen's navigation stack.
+    private func handleAppKey(_ event: NSEvent) -> Bool {
+        guard !event.modifierFlags.contains(.command),
+              event.charactersIgnoringModifiers?.lowercased() == "f",
+              NSApp.modalWindow == nil else { return false }
+
+        if NSApp.keyWindow?.firstResponder is NSTextView { return false }
+        (event.window ?? NSApp.keyWindow)?.toggleFullScreen(nil)
+        return true
     }
 
     /// Grow the window to fill the available screen (menu bar / Dock aside) — the library is
@@ -328,7 +376,9 @@ struct ShortcutsOverlay: View {
         ("→ ↓ Space", "Next page"),
         ("Home / End", "First / Last page"),
         ("Shift + arrows", "Previous / Next chapter"),
-        ("1 / 0", "Chapter start / book start"),
+        ("1 / 0", "First / Last page of comic"),
+        ("2 / 9", "First / Last page of chapter"),
+        ("⌘C", "Copy current page image"),
         ("C", "Toggle chapter"),
         ("T", "Chapter thumbnails"),
         ("+  −", "Zoom in / out (fit)"),
@@ -337,7 +387,7 @@ struct ShortcutsOverlay: View {
         ("Z", "Fit to screen / cycle fit mode"),
         ("H", "Toggle page number"),
         ("R", "Horizontal / Vertical view"),
-        ("F / Esc", "Fullscreen / exit"),
+        ("F", "Toggle fullscreen"),
         ("⌘O", "Open file, folder, or archive"),
         ("⌘/", "Toggle this help"),
     ]
@@ -452,7 +502,7 @@ struct AppSidebar: View {
                     Spacer(minLength: 0)
                 }
                 Button(action: toggle) { Image(systemName: "sidebar.left").frame(width: 32, height: 32) }
-                    .help(expanded ? "Collapse sidebar" : "Expand sidebar")
+                    .sidebarTooltip(expanded ? "Collapse sidebar" : "Expand sidebar")
                     .accessibilityLabel(expanded ? "Collapse sidebar" : "Expand sidebar")
             }
             .padding(.horizontal, expanded ? 16 : 12)
@@ -470,9 +520,11 @@ struct AppSidebar: View {
                 DownloadQueueButton(showLabel: expanded)
                     .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
                     .padding(.horizontal, expanded ? 12 : 0).frame(height: 38)
+                    .sidebarTooltip("Downloads", isEnabled: !expanded)
                 TorrentQueueButton(showLabel: expanded)
                     .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
                     .padding(.horizontal, expanded ? 12 : 0).frame(height: 38)
+                    .sidebarTooltip("Torrents", isEnabled: !expanded)
                 Divider().overlay(.white.opacity(0.07)).padding(.vertical, 6)
                 SettingsLink {
                     HStack(spacing: 12) {
@@ -482,7 +534,7 @@ struct AppSidebar: View {
                     .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
                     .padding(.horizontal, expanded ? 12 : 0).frame(height: 38)
                     .contentShape(Rectangle())
-                }.help("Settings")
+                }.sidebarTooltip("Settings", isEnabled: !expanded)
             }
             .font(.system(size: 13))
             .padding(.horizontal, 8).padding(.bottom, 12)
@@ -510,8 +562,93 @@ struct AppSidebar: View {
             .foregroundStyle(active == route ? .white : .white.opacity(0.65))
             .contentShape(Rectangle())
         }
-        .help(title).accessibilityLabel(title)
+        .sidebarTooltip(title, shortcut: shortcut(for: route), isEnabled: !expanded)
+        .accessibilityLabel(title)
         .accessibilityAddTraits(active == route ? .isSelected : [])
         .pointingHandCursor()
+    }
+
+    private func shortcut(for route: AppRouter.Route) -> String? {
+        switch route {
+        case .library: "⌘1"
+        case .local: "⌘L"
+        case .browse: "⌘B"
+        case .collections: "⌘K"
+        default: nil
+        }
+    }
+}
+
+private struct SidebarTooltipModifier: ViewModifier {
+    let title: String
+    var shortcut: String? = nil
+    var isEnabled = true
+
+    @State private var isHovering = false
+    @State private var isVisible = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { isHovering = $0 }
+            .task(id: isHovering && isEnabled) {
+                isVisible = false
+                guard isEnabled, isHovering else { return }
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.12)) { isVisible = true }
+            }
+            .overlay(alignment: .leading) {
+                if isEnabled && isVisible {
+                    HStack(spacing: 0) {
+                        SidebarTooltipArrow()
+                            .fill(Color(white: 0.16))
+                            .frame(width: 7, height: 12)
+                        HStack(spacing: 14) {
+                            Text(title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.96))
+                            if let shortcut {
+                                Text(shortcut)
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.58))
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(.white.opacity(0.09), lineWidth: 1)
+                        }
+                        .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 4)
+                    }
+                    .fixedSize()
+                    .offset(x: 54)
+                    .zIndex(1000)
+                    .allowsHitTesting(false)
+                    .transition(.opacity.combined(with: .offset(x: -3)))
+                }
+            }
+    }
+}
+
+private struct SidebarTooltipArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
+private extension View {
+    func sidebarTooltip(
+        _ title: String,
+        shortcut: String? = nil,
+        isEnabled: Bool = true
+    ) -> some View {
+        modifier(SidebarTooltipModifier(title: title, shortcut: shortcut, isEnabled: isEnabled))
     }
 }

@@ -1,10 +1,10 @@
 {
   "cases": [
     {
-      "name": "Cold and warm catalog use real lazy image DOM",
+      "name": "Default complete catalog uses lazy covers and warm cache",
       "url": "https://readcomicsonline.ru/comic-list?page=1",
       "repeat": 2,
-      "requestCount": 1,
+      "requestCount": 2,
       "expected": {
         "comics": [
           {
@@ -14,13 +14,12 @@
           {
             "title": "Beta",
             "cover": null
+          },
+          {
+            "title": "Gamma"
           }
         ],
-        "catalogs": [
-          {
-            "url": "https://readcomicsonline.ru/comic-list?page=2"
-          }
-        ]
+        "catalogs": []
       },
       "responses": {
         "https://readcomicsonline.ru/comic-list?page=1": {
@@ -38,7 +37,7 @@
       }
     },
     {
-      "name": "Last page has no next folder",
+      "name": "Continuation batch returns only remaining entries without folders",
       "url": "https://readcomicsonline.ru/comic-list?page=2",
       "requestCount": 1,
       "expected": {
@@ -65,19 +64,21 @@
       }
     },
     {
-      "name": "Opt-in complete catalog",
+      "name": "Legacy paged setting still returns the complete catalog",
       "url": "https://readcomicsonline.ru/comic-list?page=1",
       "settings": {
-        "fullCatalog": true
+        "fullCatalog": false
       },
       "requestCount": 2,
       "expected": {
         "comics": [
           {
-            "title": "Alpha"
+            "title": "Alpha",
+            "cover": "https://readcomicsonline.ru/uploads/manga/alpha/cover/main.jpg"
           },
           {
-            "title": "Beta"
+            "title": "Beta",
+            "cover": null
           },
           {
             "title": "Gamma"
@@ -133,6 +134,8 @@
     },
     {
       "name": "Chapter lazy images deduplicate and sort",
+      "repeat": 2,
+      "requestCount": 1,
       "url": "https://readcomicsonline.ru/comic/alpha/2",
       "operation": "pages",
       "expected": {

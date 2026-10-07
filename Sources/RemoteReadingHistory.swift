@@ -1,8 +1,10 @@
 import Foundation
+import Observation
 
 /// Stores reading state for streamed remote comics independently of any particular source.
 /// Remote source plugins register an opened issue here so the Home screen can restore in-progress
 /// reads without knowing which plugin provided them.
+@Observable
 final class RemoteReadingHistory {
     static let shared = RemoteReadingHistory()
 
@@ -17,13 +19,11 @@ final class RemoteReadingHistory {
     }
 
     private(set) var issues: [ReadIssue] = []
+    private let fileURL: URL
 
-    private var fileURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("ComicViewer/remote-reading-history.json")
-    }
-
-    init() {
+    init(fileURL: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("ComicViewer/remote-reading-history.json")) {
+        self.fileURL = fileURL
         load()
     }
 
@@ -62,8 +62,14 @@ final class RemoteReadingHistory {
         save()
     }
 
-    /// Rebuild in-progress remote issues for the Home "Continue Reading" shelf.
-    func continueComics() -> [Comic] {
+    /// Reset entries disappear immediately; reading the issue again records it anew.
+    func remove(_ url: URL) {
+        issues.removeAll { $0.key == url.absoluteString }
+        save()
+    }
+
+    /// Rebuild all remote issues with reading activity, including completed issues.
+    func recentlyReadComics() -> [Comic] {
         issues.compactMap { issue -> Comic? in
             guard let url = URL(string: issue.key),
                   let state = CentralStore.loadState(forKey: CentralStore.key(for: url)),
@@ -72,7 +78,7 @@ final class RemoteReadingHistory {
                   let index = state.lastIndex else { return nil }
 
             let page = index + 1
-            guard page >= 3, page < count else { return nil }
+            guard page >= 1 else { return nil }
 
             for request in issue.pageResources ?? [] { PluginResourceRegistry.shared.register(request) }
             if let request = issue.coverResource { PluginResourceRegistry.shared.register(request) }
@@ -91,6 +97,14 @@ final class RemoteReadingHistory {
                 tooltip: nil,
                 remotePages: pages
             )
+        }
+    }
+
+    /// Apply the same progress threshold used for local Continue Reading entries.
+    func continueComics() -> [Comic] {
+        recentlyReadComics().filter {
+            guard let progress = $0.progress else { return false }
+            return progress.page >= 3 && progress.page < progress.count
         }
     }
 }

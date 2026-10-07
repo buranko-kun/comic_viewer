@@ -1,4 +1,6 @@
 import XCTest
+import CoreGraphics
+import ImageIO
 @testable import ComicViewer
 
 /// Safety net for the archive layer — the code that streams pages out of comics and, crucially,
@@ -167,6 +169,79 @@ final class ArchiveTests: XCTestCase {
         // A second call is a cheap no-op success (already on disk).
         let again = await streamer.ensure(target)
         XCTAssertTrue(again)
+    }
+
+    func testRefreshReplacesCachedAndPreservedCoversAfterFirstPageRemoval() async throws {
+        let src = tmp.appendingPathComponent("cover-src")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        try writeCover(src.appendingPathComponent("001.png"), red: 1, blue: 0)
+        try writeCover(src.appendingPathComponent("002.png"), red: 0, blue: 1)
+        let archive = tmp.appendingPathComponent("cover.cbz")
+        let cache = tmp.appendingPathComponent("covers")
+        makeArchive(from: src, out: archive, type: "zip")
+        let oldCover = try XCTUnwrap(ArchiveCover.makeSync(for: archive, cacheDirectory: cache))
+        let oldBytes = try Data(contentsOf: oldCover)
+        let preserved = await ArchiveCover.preserveThumbnail(for: archive, cacheDirectory: cache)
+        XCTAssertTrue(preserved)
+        let preservedURL = try XCTUnwrap(ArchiveCover.makeSync(for: archive, cacheDirectory: cache))
+        let preservedBytes = try Data(contentsOf: preservedURL)
+
+        try FileManager.default.removeItem(at: src.appendingPathComponent("001.png"))
+        try FileManager.default.removeItem(at: archive)
+        makeArchive(from: src, out: archive, type: "zip")
+        let archiveBytes = try Data(contentsOf: archive)
+        // Normal viewing keeps the saved cover; only an explicit reset replaces it.
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(ArchiveCover.makeSync(for: archive, cacheDirectory: cache))), preservedBytes)
+        let refreshed = try XCTUnwrap(ArchiveCover.refreshSync(for: archive, cacheDirectory: cache))
+        XCTAssertEqual(refreshed, preservedURL)
+        XCTAssertNotEqual(try Data(contentsOf: refreshed), preservedBytes)
+        XCTAssertNotEqual(try Data(contentsOf: oldCover), oldBytes)
+        XCTAssertEqual(try Data(contentsOf: oldCover), try Data(contentsOf: src.appendingPathComponent("002.png")))
+        XCTAssertEqual(try Data(contentsOf: archive), archiveBytes, "refresh never rewrites the comic")
+    }
+
+    func testFailedRefreshKeepsSavedCover() throws {
+        let src = tmp.appendingPathComponent("cover-src")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        try writeCover(src.appendingPathComponent("001.png"), red: 1, blue: 0)
+        let archive = tmp.appendingPathComponent("cover.cbz")
+        let cache = tmp.appendingPathComponent("covers")
+        makeArchive(from: src, out: archive, type: "zip")
+        let cover = try XCTUnwrap(ArchiveCover.makeSync(for: archive, cacheDirectory: cache))
+        let saved = try Data(contentsOf: cover)
+        try Data("not an archive".utf8).write(to: archive)
+        XCTAssertNil(ArchiveCover.refreshSync(for: archive, cacheDirectory: cache))
+        XCTAssertEqual(try Data(contentsOf: cover), saved)
+        XCTAssertEqual(ArchiveCover.makeSync(for: archive, cacheDirectory: cache), cover)
+    }
+
+    func testThumbnailInvalidationClearsMemoryAndDiskAfterCoverReplacement() async throws {
+        let image = tmp.appendingPathComponent("cover.png")
+        let disk = tmp.appendingPathComponent("thumbs")
+        let cache = ThumbnailCache(cacheDirectory: disk)
+        try writeCover(image, red: 1, blue: 0)
+        let firstResult = await cache.thumbnail(for: image, maxPixel: 100)
+        let first = try XCTUnwrap(firstResult)
+        let diskFiles = try FileManager.default.contentsOfDirectory(at: disk, includingPropertiesForKeys: nil)
+        XCTAssertEqual(diskFiles.count, 1)
+        try writeCover(image, red: 0, blue: 1)
+        await cache.invalidate(image)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(at: disk, includingPropertiesForKeys: nil).isEmpty)
+        let nextResult = await cache.thumbnail(for: image, maxPixel: 100)
+        let next = try XCTUnwrap(nextResult)
+        XCTAssertNotEqual(first.dataProvider?.data as Data?, next.dataProvider?.data as Data?)
+    }
+
+    private func writeCover(_ url: URL, red: CGFloat, blue: CGFloat) throws {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8,
+                                             bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: red, green: 0, blue: blue, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        let image = try XCTUnwrap(context.makeImage())
+        let output = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(output, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(output))
     }
 
     // MARK: - helpers

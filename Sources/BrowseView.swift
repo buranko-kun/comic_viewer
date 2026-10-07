@@ -1,11 +1,11 @@
 import SwiftUI
 import AppKit
 
-/// The Online section: aggregates every configured catalog source into one browsable view —
+/// The Online section: switches between configured catalog sources in one browsable view —
 /// covers, titles, descriptions, metadata, and mirror downloads — and lets you drill into a
 /// source's sub-catalogs (folders). Downloads land in the local library. Styled to match the
-/// library (black bars, white text, red accents). Keeps its own folder back stack; Escape pops
-/// it, then returns to the library.
+/// library (black bars, white text, red accents). Keeps its own folder back stack; the visible
+/// back control pops it, then returns to the library.
 struct BrowseView: View {
     @Environment(AppRouter.self) private var router
     private let sources = CatalogSourceStore.shared
@@ -20,6 +20,7 @@ struct BrowseView: View {
     @State private var loadingChild = false
     @State private var childError: String?
     @State private var recoveryPlugin: SourcePlugin?
+    @State private var sessionRecovery = SourceSessionRecovery()
     @State private var childRecoveryPlugin: SourcePlugin?
     @State private var childTask: Task<Void, Never>?
     @State private var childGeneration = UUID()
@@ -43,8 +44,31 @@ struct BrowseView: View {
     @State private var showDownloads = false
     private let downloadManager = DownloadManager.shared
 
-    private var levelComics: [RemoteComic] { browseState.stack.last?.comics ?? aggregator.comics }
-    private var levelFolders: [RemoteCatalog.ChildCatalog] { browseState.stack.last?.childCatalogs ?? aggregator.folders }
+    private struct CatalogOption: Identifiable {
+        let id: String
+        let name: String
+    }
+    private var catalogOptions: [CatalogOption] {
+        sources.sources.map { CatalogOption(id: $0.id, name: $0.name) }
+            + plugins.enabledPlugins.map { CatalogOption(id: "plugin:" + $0.id, name: $0.name) }
+    }
+    private var selectedCatalog: CatalogOption? {
+        let key = browseState.selectedSourceKey
+            ?? browseState.stack.first?.sourceID.map { "plugin:" + $0 }
+        return catalogOptions.first { $0.id == key } ?? catalogOptions.first
+    }
+    private var rootCatalog: RemoteCatalog? {
+        selectedCatalog.flatMap { aggregator.catalog(forSourceKey: $0.id) }
+    }
+    private var levelComics: [RemoteComic] { browseState.stack.last?.comics ?? rootCatalog?.comics ?? [] }
+    private var allLevelFolders: [RemoteCatalog.ChildCatalog] { browseState.stack.last?.childCatalogs ?? rootCatalog?.childCatalogs ?? [] }
+    private func isPagination(_ folder: RemoteCatalog.ChildCatalog) -> Bool {
+        folder.name.lowercased().hasPrefix("next page")
+    }
+    private var levelFolders: [RemoteCatalog.ChildCatalog] { allLevelFolders.filter { !isPagination($0) } }
+    private var nextPage: RemoteCatalog.ChildCatalog? { allLevelFolders.first(where: isPagination) }
+    private var sourceFailures: [SourceFailure] { aggregator.sourceFailures.filter { $0.id == selectedCatalog?.id } }
+    private var showingCachedSource: Bool { selectedCatalog.map { aggregator.cachedSources.contains($0.id) } ?? false }
     private var levelTitle: String { browseState.stack.last?.name ?? "Online" }
 
     /// "1000 comics · 22 without mirror" — reflects what's currently shown (respects search).
@@ -68,7 +92,7 @@ struct BrowseView: View {
 
     /// Identifies the current browse level (home or a drilled-in folder).
     private var levelKey: String {
-        "\(browseState.stack.count)|\(browseState.stack.last?.sourceURL.absoluteString ?? "home")"
+        "\(selectedCatalog?.id ?? "")|\(browseState.stack.count)|\(browseState.stack.last?.sourceURL.absoluteString ?? "home")"
     }
 
     /// Re-run the background filter whenever the level, must-read toggle, or debounced query change.
@@ -94,23 +118,30 @@ struct BrowseView: View {
         return ZStack {
             Color.black.ignoresSafeArea()
             VStack(spacing: 0) {
-                topBar
+                topBar.zIndex(2)
                 Divider().overlay(.white.opacity(0.12))
                 content
-                    .id(browseState.stack.count)   // a back swipe slides the level out to the right
+                    .id(levelKey)
                     .transition(.asymmetric(insertion: .move(edge: .leading),
                                             removal: .move(edge: .trailing)))
                     .clipped()
             }
         }
         .tint(.white)
-        .sheet(item: $recoveryPlugin) { SourcePluginSessionSheet(plugin: $0) }
+        .sheet(item: $recoveryPlugin, onDismiss: { sessionRecovery.browserClosed() }) {
+            SourcePluginSessionSheet(plugin: $0)
+        }
         .sheet(item: $pendingNewCollectionItem) { NewCollectionSheet(item: $0) }
         .onAppear {
+            if browseState.selectedSourceKey == nil { browseState.selectedSourceKey = selectedCatalog?.id }
+            else if browseState.selectedSourceKey != selectedCatalog?.id { selectCatalog(selectedCatalog?.id) }
             keyMonitor.start(key: handleKey)
             if !aggregator.loadedOnce { Task { await aggregator.loadRoots() } }
         }
-        .onDisappear { keyMonitor.stop(); searchDebounce?.cancel(); cancelChild() }
+        .onDisappear { keyMonitor.stop(); searchDebounce?.cancel(); cancelChild(); sessionRecovery.cancel() }
+        .onChange(of: catalogOptions.map(\.id)) { _, _ in
+            if browseState.selectedSourceKey != selectedCatalog?.id { selectCatalog(selectedCatalog?.id) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .browseBack)) { _ in back() }
         .onChange(of: browseState.invalidationRevision) { _, _ in cancelChild(); childError = nil }
         // Debounce typing: the field updates instantly, but filtering waits until you pause so a
@@ -118,6 +149,10 @@ struct BrowseView: View {
         .onChange(of: browseState.searchText) { _, newValue in
             searchDebounce?.cancel()
             let q = newValue.trimmingCharacters(in: .whitespaces)
+            if q == browseState.activeQuery, browseState.searchResults != nil {
+                isFiltering = false
+                return
+            }
             if q.isEmpty {
                 browseState.activeQuery = ""; browseState.searchResults = nil
                 browseState.resultsToken = ""; isFiltering = false
@@ -138,7 +173,7 @@ struct BrowseView: View {
             guard !browseState.activeQuery.isEmpty else {
                 browseState.searchResults = nil; browseState.resultsToken = ""; isFiltering = false; return
             }
-            if browseState.resultsToken == token, browseState.searchResults != nil { return }
+            if browseState.resultsToken == token, browseState.searchResults != nil { isFiltering = false; return }
             isFiltering = true
             let matches = await Self.runSearchFilter(levelComics, query: browseState.activeQuery,
                                                      mustReadOnly: browseState.mustReadOnly)
@@ -200,7 +235,7 @@ struct BrowseView: View {
             centered {
                 VStack { ProgressView().controlSize(.large); Button("Cancel") { cancelChild() } }
             }
-        } else if browseState.stack.isEmpty && aggregator.loading && levelComics.isEmpty && levelFolders.isEmpty {
+        } else if browseState.stack.isEmpty && selectedCatalog.map({ aggregator.isLoadingSource($0.id) }) == true && levelComics.isEmpty && levelFolders.isEmpty {
             centered { ProgressView().controlSize(.large) }
         } else if let childError {
             errorView(childError) { self.childError = nil; retryChild?() }
@@ -261,7 +296,16 @@ struct BrowseView: View {
                 ? { shelf.reshuffle(); bs.windowStart = 0; bs.windowCount = Self.pageSize } : nil,
             onBeforeLetterJump: { shelf.active = false },
             header: {
-                if (!aggregator.errors.isEmpty || !aggregator.cachedSources.isEmpty) && browseState.stack.isEmpty { errorBanner }
+                if browseState.stack.isEmpty, let selectedCatalog,
+                   aggregator.isLoadingSource(selectedCatalog.id), !levelComics.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading more comics… \(levelComics.count) loaded")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, GridStyle.hPadding).padding(.top, 12)
+                }
+                if (!sourceFailures.isEmpty || showingCachedSource) && browseState.stack.isEmpty { errorBanner }
                 if d.comics.isEmpty && levelFolders.isEmpty {
                     if isFiltering {
                         ProgressView().controlSize(.small).padding(.top, 60)
@@ -290,26 +334,28 @@ struct BrowseView: View {
 
     private var errorBanner: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(aggregator.sourceFailures) { failure in
+            ForEach(sourceFailures) { failure in
                 HStack {
                     VStack(alignment: .leading) {
                         Text("\(failure.name): \(failure.summary)").font(.caption.bold())
                         Text(failure.detail).font(.caption2).textSelection(.enabled)
                     }
                     Spacer()
-                    Button("Retry") { Task { await aggregator.retrySource(failure.id) } }
-                        .disabled(aggregator.isLoadingSource(failure.id))
                     if failure.id.hasPrefix("plugin:"), let plugin = plugins.plugin(id: String(failure.id.dropFirst(7))) {
-                        Button("Open source browser") { recoveryPlugin = plugin }
+                        Button("Open source browser") {
+                            recover(plugin) { Task { await aggregator.retrySource(failure.id) } }
+                        }
                     } else if let url = URL(string: failure.id) {
+                        Button("Retry") { Task { await aggregator.retrySource(failure.id) } }
+                            .disabled(aggregator.isLoadingSource(failure.id))
                         Button("Open source") { NSWorkspace.shared.open(url) }
                     }
                 }
             }
-            if !aggregator.cachedSources.isEmpty { Text(aggregator.loading ? "Showing saved catalogs while sources refresh." : "Showing saved catalogs. Some sources could not refresh.").font(.caption2) }
+            if showingCachedSource { Text(aggregator.loading ? "Showing saved catalog while it refreshes." : "Showing saved catalog. The source could not refresh.").font(.caption2) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10).background(aggregator.sourceFailures.isEmpty ? Color.white.opacity(0.08) : Color.red.opacity(0.25))
+        .padding(10).background(sourceFailures.isEmpty ? Color.white.opacity(0.08) : Color.red.opacity(0.25))
         .padding(.horizontal, 30).padding(.top, 12)
     }
 
@@ -318,14 +364,18 @@ struct BrowseView: View {
     }
 
     private func errorView(_ text: String, retry: @escaping () -> Void) -> some View {
-        centered {
+        let message = SourceErrorPresentation(text)
+        return centered {
             VStack(spacing: 10) {
                 Image(systemName: "wifi.exclamationmark").font(.largeTitle)
-                Text(text).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.7))
-                Button("Try again", action: retry).tint(.red)
+                Text(message.title).font(.title2.weight(.semibold))
+                Text(message.detail).font(.caption).multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary).textSelection(.enabled)
                 if let plugin = childRecoveryPlugin {
-                    Button("Open source browser") { recoveryPlugin = plugin }
-                }
+                    Button("Open source browser") { recover(plugin, retry: retry) }
+                    Text("Complete any verification, then close the browser to reconnect.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else { Button("Try again", action: retry).tint(.red) }
             }.padding(40)
         }
     }
@@ -345,9 +395,26 @@ struct BrowseView: View {
                 )
             }
         } search: {
-            NavigationSearchField(prompt: browseState.stack.isEmpty ? "Search online catalogs" : "Search this catalog", text: $browseState.searchText)
+            NavigationSearchField(prompt: "Search this catalog", text: $browseState.searchText, onlineSuggestions: true, suggestionTitles: levelComics.map(\.title))
         } actions: {
             HStack(spacing: 12) {
+                if let selectedCatalog {
+                    Menu {
+                        ForEach(catalogOptions) { option in
+                            Button { selectCatalog(option.id) } label: {
+                                if option.id == selectedCatalog.id { Label(option.name, systemImage: "checkmark") }
+                                else { Text(option.name) }
+                            }
+                        }
+                    } label: {
+                        Text(selectedCatalog.name).lineLimit(1).truncationMode(.tail)
+                    }
+                    .help("Choose online catalog")
+                }
+                if let nextPage {
+                    Button { open(nextPage) } label: { Label("Next page", systemImage: "chevron.right") }
+                        .disabled(loadingChild).help("Next page")
+                }
                 if selecting {
                     Button("Open \(selectedIDs.count)") { openSelected() }.disabled(selectedIDs.isEmpty)
                     Button("Done") { exitSelection() }
@@ -365,7 +432,7 @@ struct BrowseView: View {
                     .menuIndicator(.hidden).help("Filter, sort, and selection")
                     Button {
                         if let current = browseState.stack.last { reopen(current) }
-                        else { Task { await aggregator.loadRoots(refresh: true) } }
+                        else if let selectedCatalog { Task { await aggregator.retrySource(selectedCatalog.id) } }
                     } label: { Image(systemName: "arrow.clockwise") }.help("Refresh catalog")
                 }
             }
@@ -373,6 +440,22 @@ struct BrowseView: View {
     }
 
     // MARK: Actions
+
+    private func recover(_ plugin: SourcePlugin, retry: @escaping () -> Void) {
+        sessionRecovery.prepare(retry)
+        recoveryPlugin = plugin
+    }
+
+    private func selectCatalog(_ key: String?) {
+        guard browseState.selectedSourceKey != key else { return }
+        cancelChild(); searchDebounce?.cancel()
+        sessionRecovery.cancel()
+        childError = nil; childRecoveryPlugin = nil; retryChild = nil
+        exitSelection()
+        browseState.selectedSourceKey = key
+        browseState.resetNavigation()
+        browseState.revision += 1
+    }
 
     private func cancelChild() {
         childTask?.cancel()
@@ -411,9 +494,7 @@ struct BrowseView: View {
                 catalog = try await CatalogClient.catalog(at: folder.url)
             }
             try Task.checkCancellation()
-            browseState.clearSearch(); browseState.resetScroll()
-            browseState.stack.append(catalog)
-            browseState.revision += 1
+            browseState.push(catalog)
         }
     }
 
@@ -435,6 +516,7 @@ struct BrowseView: View {
     }
 
     private func back() {
+        sessionRecovery.cancel()
         cancelChild(); childError = nil
         if selecting { exitSelection(); return }
         router.escapeBack()
@@ -443,6 +525,7 @@ struct BrowseView: View {
     /// Tap a remote card. Plugins can turn cards into sub-catalogs or stream their page images
     /// directly into the reader; ordinary catalogs keep the existing browser-open behavior.
     private func tapComic(_ comic: RemoteComic) {
+        OnlineSearchHistory.shared.record(browseState.searchText)
         if selecting {
             if selectedIDs.contains(comic.id) { selectedIDs.remove(comic.id) }
             else { selectedIDs.insert(comic.id) }
@@ -504,15 +587,78 @@ struct BrowseView: View {
 final class BrowseState {
     static let shared = BrowseState()
 
-    /// Folders drilled into (each a fetched sub-catalog). Empty = the aggregated home.
+    var selectedSourceKey: String?
+
+    /// Folders drilled into. Empty = the selected catalogue's root.
     var stack: [RemoteCatalog] = []
     var returnToSearch = false
+    var returnRoute: AppRouter.Route?
+    private var parentViews: [Position] = []
+    private var externalBackup: (stack: [RemoteCatalog], parents: [Position], position: Position)?
+
+    private struct Position {
+        let source: String?
+        let search: String
+        let query: String
+        let results: [RemoteComic]?
+        let token: String
+        let start: Int
+        let count: Int
+        let anchor: String?
+        let sort: SortMode
+        let mustRead: Bool
+        let revision: Int
+    }
+    private var position: Position {
+        Position(source: selectedSourceKey, search: searchText, query: activeQuery,
+                 results: searchResults, token: resultsToken, start: windowStart, count: windowCount,
+                 anchor: anchorID, sort: sortMode, mustRead: mustReadOnly, revision: revision)
+    }
+    private func restore(_ saved: Position) {
+        selectedSourceKey = saved.source; searchText = saved.search; activeQuery = saved.query
+        searchResults = saved.results; resultsToken = saved.token
+        windowStart = saved.start; windowCount = saved.count; anchorID = saved.anchor
+        sortMode = saved.sort; mustReadOnly = saved.mustRead; revision = saved.revision
+    }
+    func push(_ catalog: RemoteCatalog) {
+        parentViews.append(position)
+        stack.append(catalog)
+        clearSearch(); resetScroll(); revision += 1
+    }
+    func beginExternal(_ catalog: RemoteCatalog, returningTo route: AppRouter.Route) {
+        externalBackup = (stack, parentViews, position)
+        returnRoute = route
+        returnToSearch = false
+        stack = [catalog]; parentViews = []
+        if let source = catalog.sourceID { selectedSourceKey = "plugin:" + source }
+        clearSearch(); resetScroll(); revision += 1
+    }
+    @discardableResult
+    func pop() -> AppRouter.Route? {
+        guard !stack.isEmpty else { return nil }
+        stack.removeLast()
+        if stack.isEmpty, let destination = returnRoute {
+            if let saved = externalBackup {
+                stack = saved.stack; parentViews = saved.parents; restore(saved.position)
+            }
+            returnRoute = nil; externalBackup = nil
+            return destination
+        }
+        if let saved = parentViews.popLast() { restore(saved) }
+        else { clearSearch(); resetScroll(); revision += 1 }
+        return nil
+    }
+    func resetNavigation() {
+        stack = []; parentViews = []; externalBackup = nil; returnRoute = nil; returnToSearch = false
+        clearSearch(); resetScroll()
+    }
     var revision = 0
     var invalidationRevision = 0
 
     func invalidatePlugin(_ id: String) {
         if let first = stack.firstIndex(where: { $0.sourceID == id }) {
             stack.removeSubrange(first...)
+            parentViews = Array(parentViews.prefix(first))
             resetScroll()
         }
         searchResults = nil; resultsToken = ""
@@ -574,7 +720,7 @@ private struct FolderCard: View {
     }
 }
 
-/// A catalog comic: cover, title, short description, and a detail popover with its mirrors.
+/// A catalog comic: clicking the cover opens its details and source actions.
 private struct ComicCard: View {
     let comic: RemoteComic
     var selecting = false
@@ -595,7 +741,6 @@ private struct ComicCard: View {
             CoverTile(borderColor: borderColor, borderWidth: (selected || !comic.hasMirrors) ? 2 : 1) {
                 cover
                     .overlay { if selected { Color.accentColor.opacity(0.22) } }
-                    .overlay(alignment: .topTrailing) { if !selecting { infoButton } }
                     .overlay(alignment: .topLeading) {
                         if selecting { selectionMark } else if comic.mustRead { mustReadBadge }
                     }
@@ -604,7 +749,12 @@ private struct ComicCard: View {
             }
             .contentShape(Rectangle())
             .pointingHandCursor()
-            .onTapGesture { onTap() }
+            .onTapGesture {
+                if selecting { onTap() }
+                else if comic.sourceID == nil { showDetail = true }
+                else { onTap() }
+            }
+            .popover(isPresented: $showDetail, arrowEdge: .trailing) { detail }
 
             Text(TitleCleaner.clean(comic.title)).font(.callout.weight(.medium)).foregroundStyle(.white)
                 .lineLimit(2, reservesSpace: true).multilineTextAlignment(.leading)
@@ -626,18 +776,7 @@ private struct ComicCard: View {
             .padding(6).shadow(radius: 2)
     }
 
-    private var cover: some View { CoverImage(url: comic.coverURL, maxPixel: 320, resource: comic.coverRequest) { Image(systemName: "book.closed").font(.largeTitle).foregroundStyle(.white.opacity(0.4)) } }
-
-    private var infoButton: some View {
-        Button { showDetail = true } label: {
-            Image(systemName: "info.circle.fill").font(.body)
-                .foregroundStyle(.white).shadow(radius: 2).padding(6)
-        }
-        .buttonStyle(.plain)
-        .help("Details")
-        .pointingHandCursor()
-        .popover(isPresented: $showDetail, arrowEdge: .trailing) { detail }
-    }
+    private var cover: some View { PluginComicCover(comic: comic) }
 
     /// Corner badge marking a curated must-read essential.
     private var mustReadBadge: some View {
@@ -659,7 +798,28 @@ private struct ComicCard: View {
 
     private var detail: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(TitleCleaner.clean(comic.title)).font(.headline)
+            if let pageURL = comic.pageURL {
+                Button {
+                    showDetail = false
+                    NSWorkspace.shared.open(pageURL)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(TitleCleaner.clean(comic.title))
+                            .font(.headline)
+                            .multilineTextAlignment(.leading)
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+                .help("Open source page in browser")
+            } else {
+                Text(TitleCleaner.clean(comic.title)).font(.headline)
+            }
             if comic.mustRead {
                 Label("Must read" + (comic.mustReadTitle.map { " · \($0)" } ?? ""),
                       systemImage: "star.fill")

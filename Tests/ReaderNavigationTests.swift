@@ -4,6 +4,55 @@ import SwiftUI
 @testable import ComicViewer
 
 final class ReaderNavigationTests: XCTestCase {
+    func testChapterBoundaryJumpsStayWithinChapterAndHandleFrontMatter() {
+        var navigation = ReaderNavigation()
+        navigation.configure(items: makePages(count: 9), folder: nil)
+        _ = navigation.goTo(index: 2); _ = navigation.toggleChapter()
+        _ = navigation.goTo(index: 5); _ = navigation.toggleChapter()
+        _ = navigation.goTo(index: 3)
+        XCTAssertTrue(navigation.lastOfChapter())
+        XCTAssertEqual(navigation.index, 4)
+        XCTAssertTrue(navigation.firstOfChapter())
+        XCTAssertEqual(navigation.index, 2)
+        _ = navigation.goTo(index: 5)
+        XCTAssertTrue(navigation.lastOfChapter())
+        XCTAssertEqual(navigation.index, 8)
+        _ = navigation.goTo(index: 0)
+        XCTAssertTrue(navigation.lastOfChapter())
+        XCTAssertEqual(navigation.index, 1)
+        XCTAssertTrue(navigation.firstOfChapter())
+        XCTAssertEqual(navigation.index, 0)
+    }
+
+    func testChapterBoundaryJumpsWithoutMarkersUseComicBoundaries() {
+        var navigation = ReaderNavigation()
+        navigation.configure(items: makePages(count: 4), folder: nil)
+        _ = navigation.goTo(index: 1)
+        XCTAssertTrue(navigation.lastOfChapter())
+        XCTAssertEqual(navigation.index, 3)
+        XCTAssertTrue(navigation.firstOfChapter())
+        XCTAssertEqual(navigation.index, 0)
+        navigation.configure(items: [], folder: nil)
+        XCTAssertFalse(navigation.lastOfChapter())
+    }
+
+    @MainActor
+    func testPageClipboardContainsPasteableImageWithOriginalPixelDimensions() throws {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 12, height: 20, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 12, height: 20))
+        let image = try XCTUnwrap(context.makeImage())
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("ComicViewerTests." + UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(PageClipboard.copy(image, to: pasteboard))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+        let png = try XCTUnwrap(pasteboard.data(forType: .png))
+        let decoded = try XCTUnwrap(NSBitmapImageRep(data: png))
+        XCTAssertEqual(decoded.pixelsWide, 12)
+        XCTAssertEqual(decoded.pixelsHigh, 20)
+    }
+
     func testPrefetchPrioritizesAdjacentPagesAndLooksAheadWithoutWrapping() {
         var navigation = ReaderNavigation()
         let pages = makePages(count: 5)
@@ -113,8 +162,8 @@ final class AppNavigationTests: XCTestCase {
         defer { browse.stack = previous; browse.returnToSearch = previousReturn }
         let root = RemoteCatalog(name: "Parent", sourceURL: URL(string: "https://example.org/parent")!, comics: [], childCatalogs: [])
         let child = RemoteCatalog(name: "Child", sourceURL: URL(string: "https://example.org/child")!, comics: [], childCatalogs: [])
-        browse.stack = [root, child]
-        browse.returnToSearch = true
+        browse.beginExternal(root, returningTo: .onlineSearch)
+        browse.push(child)
         router.route = .browse
         router.escapeBack()
         XCTAssertEqual(browse.stack.count, 1)

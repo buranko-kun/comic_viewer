@@ -1,11 +1,10 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// Single source of truth for the formats the app handles (v1: JPEG + PNG).
-/// Adding HEIC/TIFF/WebP later is a one-line change here plus the Info.plist types.
+/// Single source of truth for page formats supported by the reader and archive scanner.
 enum SupportedTypes {
-    static let utTypes: [UTType] = [.jpeg, .png]
-    static let extensions: Set<String> = ["jpg", "jpeg", "png"]
+    static let utTypes: [UTType] = [.jpeg, .png, .webP]
+    static let extensions: Set<String> = ["jpg", "jpeg", "png", "webp"]
 
     /// True for a page image the viewer can display.
     static func isSupported(_ url: URL) -> Bool {

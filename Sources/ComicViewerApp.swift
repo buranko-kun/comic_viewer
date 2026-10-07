@@ -18,18 +18,23 @@ struct ComicViewerApp: App {
         LibraryTest.runIfRequested()    // headless library scan test; exits if --librarytest
         CatalogTest.runIfRequested()    // headless catalog fetch/normalize test; exits if --catalogtest
         MetadataTest.runIfRequested()   // headless ComicInfo.xml parse test; exits if --metadatatest
-        SourcePluginTest.runIfRequested() // headless source-plugin smoke test; exits if --sourceplugintest
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(model)
-                .environment(router)
-                .environment(library)
-                .tint(.white)   // palette: black / white / gray + red (used only for progress)
-                .preferredColorScheme(.dark)   // always-black UI → keep default text light
-                .frame(minWidth: 640, minHeight: 400)
+            Group {
+                if SourcePluginTest.isRequested {
+                    Color.clear
+                } else {
+                    RootView()
+                        .environment(model)
+                        .environment(router)
+                        .environment(library)
+                        .tint(.white)   // palette: black / white / gray + red (used only for progress)
+                        .preferredColorScheme(.dark)   // always-black UI → keep default text light
+                        .frame(minWidth: 640, minHeight: 400)
+                }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         Settings {

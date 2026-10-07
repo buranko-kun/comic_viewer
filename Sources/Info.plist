@@ -55,6 +55,7 @@
             <array>
                 <string>public.jpeg</string>
                 <string>public.png</string>
+                <string>org.webmproject.webp</string>
             </array>
         </dict>
         <dict>

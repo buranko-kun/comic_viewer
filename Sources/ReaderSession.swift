@@ -21,6 +21,7 @@ final class ReaderSession {
     private(set) var isLoadingPage = false
     var canRetryPage: Bool { failedURL != nil && items.indices.contains(index) && items[index] == failedURL }
     private(set) var openingName: String?
+    private(set) var comicTitle: String?
 
     var items: [URL] { navigation.items }
     var index: Int { navigation.index }
@@ -75,6 +76,9 @@ final class ReaderSession {
         failedURL = nil
         isOpening = true
         openingName = name
+        let pathName = name as NSString
+        comicTitle = !remote && ArchiveExtractor.extensions.contains(pathName.pathExtension.lowercased())
+            ? pathName.deletingPathExtension : name
         source = remote ? .remote : .local(streamer: nil)
         manualRotate = nil
         pagesLandscape = true
@@ -133,7 +137,10 @@ final class ReaderSession {
 
         loadState()
 
-        var start = explicitStart ?? 0
+        // A negative explicit index counts from the end (-1 is the last page). This lets
+        // issue-to-issue navigation target the previous archive's final page without needing
+        // to pre-scan or extract that archive just to learn its page count.
+        var start = explicitStart.map { $0 < 0 ? items.count + $0 : $0 } ?? 0
         if let initialImage, let i = items.firstIndex(of: initialImage) {
             start = i
             if i == 0, let r = navigation.resumeIndex(), r != 0 {
@@ -285,6 +292,12 @@ final class ReaderSession {
 
     func firstOfChapter() {
         guard navigation.firstOfChapter() else { return }
+        scheduleSaveState()
+        reload()
+    }
+
+    func lastOfChapter() {
+        guard navigation.lastOfChapter() else { return }
         scheduleSaveState()
         reload()
     }

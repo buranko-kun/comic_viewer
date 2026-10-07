@@ -11,12 +11,22 @@ It exists in the ComicViewer repository only so the complete working source is e
 
 ## What the plugin provides
 
-- Fast page-by-page catalog browsing with a Next page folder.
-- Optional full catalog discovery: enable **Load entire catalog** in the source settings.
-  This restores full-collection global search but can take several minutes on the first load.
-  In default paged mode, global search only includes the root page's entries.
+- Complete catalogue browsing with the app's random selection and A–Z rail, matching JSON catalogues.
+  The first batch is shown immediately, then website pages are fetched and merged in the
+  background using `continuationURL`; no Next page folders are shown. A loading status shows
+  how many comics are available. Later visits reuse cached pages and the complete catalogue.
+  If a later request fails, the comics already loaded remain available with a retry action.
+  Background batches contain up to six website pages, with at most two requests in flight.
+  Rate limiting or server rejection switches to one paced worker for five minutes.
+  The app resumes partial disk snapshots and reuses complete snapshots on normal startup;
+  use Refresh to explicitly update the catalogue (disk snapshots expire after seven days).
 - A 14-day per-page and full-catalog cache in the plugin WebView's persistent local storage.
-- Lazy-loaded cover extraction. Issue cards use the series cover instead of guessing a chapter filename.
+- Visible issue cards resolve their own first page as a thumbnail, keeping the series cover
+  as a fallback if discovery fails. The `first-page-covers` capability opts into this behavior.
+  Discovered image requests are cached on disk for 14 days, including their referrer and
+  browser-session requirements. Issue page lists are also cached, so opening a comic after
+  loading its thumbnail does not fetch the issue HTML again. A first page that is not a
+  cover will be shown as-is; no chapter filenames are guessed.
 - Series to chapter navigation.
 - Chapter cards marked as readable with `canRead: true`.
 - Exact chapter image discovery through `parsePages()`.
@@ -54,8 +64,8 @@ The core app must not import, reference, or otherwise depend on files in this di
 ## Updating and verification
 
 Install the local `plugin.js` again through Preferences → Sources to replace the installed copy
-with version 1.3.0. A repository edit does not update an already-installed plugin. The new cache
-namespace discards old parsed results that may contain missing or incorrect covers.
+with version 1.4.2. A repository edit does not update an already-installed plugin.
+The old paged-mode setting is no longer used. Cached complete catalogues are retained.
 
 Run the offline parser and request-count regression checks:
 
@@ -72,4 +82,4 @@ tools/test-source-plugin plugins/readcomicsonline/plugin.js plugins/readcomicson
 The HTML is synthetic and sanitized, not a claim about the current live site. Live markup and image
 delivery must also be checked in the app's authenticated session. Version 1.3.0 supplies image
 referrer/cookie context, cancellation-aware fetches, refresh/cache hooks, and request diagnostics.
-Full-catalog operations have a 900-second bound; individual requests time out after 25 seconds.
+Each batch operation has a 60-second bound; individual requests time out after 25 seconds.

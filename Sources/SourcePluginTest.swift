@@ -1,38 +1,40 @@
 import Foundation
 import AppKit
 
-/// CLI fixture/live entry point. Keeps the WebKit main run loop alive.
+/// CLI fixture/live entry point, started by the app delegate after AppKit launches.
 /// Fixtures are isolated; --plugin-live uses the browser session and plugin cache.
 enum SourcePluginTest {
-    @MainActor static func runIfRequested() {
+    static var isRequested: Bool {
         let args = ProcessInfo.processInfo.arguments
-        guard args.contains("--sourceplugintest") || args.contains("--plugin-fixtures") || args.contains("--plugin-live") else { return }
+        return args.contains("--sourceplugintest") || args.contains("--plugin-fixtures") || args.contains("--plugin-live")
+    }
+
+    @MainActor static func runIfRequested() async {
+        guard isRequested else { return }
+        setbuf(stdout, nil) // Keep fixture progress visible when output is piped.
+        print("plugin tests: starting")
         NSApplication.shared.setActivationPolicy(.prohibited)
-        Task { @MainActor in
-            do {
-                if let index = args.firstIndex(of: "--plugin-live"), args.count > index + 2 {
-                    let scriptURL = URL(fileURLWithPath: args[index + 1])
-                    let script = try String(contentsOf: scriptURL, encoding: .utf8)
-                    try await SourcePluginFixtureRunner.runCase(["url": args[index + 2]], script: script, sourceURL: scriptURL, directory: scriptURL.deletingLastPathComponent(), live: true)
-                } else if let index = args.firstIndex(of: "--plugin-fixtures"), args.count > index + 2 {
-                    try await SourcePluginFixtureRunner.run(
-                        scriptURL: URL(fileURLWithPath: args[index + 1]),
-                        suiteURL: URL(fileURLWithPath: args[index + 2]))
-                } else if args.contains("--sourceplugintest") {
-                    try await SourcePluginFixtureRunner.smoke()
-                } else {
-                    throw SourcePluginFixtureRunner.Failure("Usage: --plugin-fixtures <plugin.js> <suite.json>")
-                }
-                print("plugin tests: PASS")
-                exit(0)
-            } catch {
-                fputs("plugin tests: FAIL: \(error.localizedDescription)\n", stderr)
-                exit(1)
+        do {
+            let args = ProcessInfo.processInfo.arguments
+            if let index = args.firstIndex(of: "--plugin-live"), args.count > index + 2 {
+                let scriptURL = URL(fileURLWithPath: args[index + 1])
+                let script = try String(contentsOf: scriptURL, encoding: .utf8)
+                try await SourcePluginFixtureRunner.runCase(["url": args[index + 2]], script: script, sourceURL: scriptURL, directory: scriptURL.deletingLastPathComponent(), live: true)
+            } else if let index = args.firstIndex(of: "--plugin-fixtures"), args.count > index + 2 {
+                try await SourcePluginFixtureRunner.run(
+                    scriptURL: URL(fileURLWithPath: args[index + 1]),
+                    suiteURL: URL(fileURLWithPath: args[index + 2]))
+            } else if args.contains("--sourceplugintest") {
+                try await SourcePluginFixtureRunner.smoke()
+            } else {
+                throw SourcePluginFixtureRunner.Failure("Usage: --plugin-fixtures <plugin.js> <suite.json>")
             }
+            print("plugin tests: PASS")
+            exit(0)
+        } catch {
+            fputs("plugin tests: FAIL: \(error.localizedDescription)\n", stderr)
+            exit(1)
         }
-        // The previous semaphore blocked the MainActor and always returned exit(0).
-        RunLoop.main.run()
-        exit(1)
     }
 }
 
@@ -53,6 +55,7 @@ enum SourcePluginFixtureRunner {
         let directory = suiteURL.deletingLastPathComponent()
         for fixture in cases {
             let name = fixture["name"] as? String ?? "Unnamed fixture"
+            print("RUN \(name)")
             do { try await runCase(fixture, script: script, sourceURL: scriptURL, directory: directory) }
             catch { throw Failure("\(name): \(error.localizedDescription)") }
             print("PASS \(name)")
@@ -96,7 +99,12 @@ enum SourcePluginFixtureRunner {
                     let pages = try await runtime.pages(plugin: plugin, script: script, at: url)
                     output = ["pages": pages.map(\.absoluteString)]
                 case "catalog":
-                    let catalog = try await runtime.catalog(plugin: plugin, script: script, at: url, refresh: live)
+                    var catalog = try await runtime.catalog(plugin: plugin, script: script, at: url, refresh: live)
+                    var visited = Set([url])
+                    while !live, let next = catalog.continuationURL {
+                        guard visited.insert(next).inserted else { throw Failure("Repeated continuation URL") }
+                        catalog = catalog.merging(try await runtime.catalog(plugin: plugin, script: script, at: next))
+                    }
                     if live { print("Live catalog: \(catalog.comics.count) comics, \(catalog.comics.filter { $0.coverURL != nil }.count) covers, \(catalog.comics.reduce(0) { $0 + $1.mirrors.count }) mirrors") }
                     output = ["name": catalog.name, "comics": catalog.comics.map { comic -> [String: Any] in
                         ["title": comic.title, "cover": comic.coverURL?.absoluteString as Any? ?? NSNull(),

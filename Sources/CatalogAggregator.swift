@@ -18,11 +18,15 @@ final class CatalogAggregator {
     private var results: [String: RemoteCatalog] = [:]
     private var failures: [String: SourceFailure] = [:]
     var sourceFailures: [SourceFailure] { failures.values.sorted { $0.name < $1.name } }
-    private let diskCache = CatalogSnapshotCache()
+    private let diskCache: CatalogSnapshotCache
     private var hydrated = Set<String>()
     private(set) var cachedSources = Set<String>()
     private var tasks: [String: Task<Void, Never>] = [:]
     private var generations: [String: UUID] = [:]
+
+    init(cacheDirectory: URL = CentralStore.baseDir.appendingPathComponent("catalog-snapshots")) {
+        diskCache = CatalogSnapshotCache(directory: cacheDirectory)
+    }
 
     /// Refresh sources independently, keeping successful results visible during refresh.
     func loadRoots(refresh: Bool = false) async {
@@ -55,12 +59,22 @@ final class CatalogAggregator {
             })
         }
         for plugin in plugins {
-            pending.append(start(key: "plugin:" + plugin.id, name: plugin.name, cacheKey: cacheKey(plugin)) {
-                try await SourcePluginRuntime.shared.catalog(plugin: plugin, refresh: refresh)
+            let saved = !refresh && plugin.capabilities?.contains("cached-catalog") == true
+                ? results["plugin:" + plugin.id] : nil
+            if let saved, saved.continuationURL == nil {
+                cachedSources.remove("plugin:" + plugin.id)
+                continue // A complete cached catalogue stays ready until explicit refresh.
+            }
+            pending.append(start(key: "plugin:" + plugin.id, name: plugin.name, cacheKey: cacheKey(plugin), continuation: { url in
+                try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: url)
+            }) {
+                if let saved { return saved } // Resume partial catalogues at their next batch.
+                return try await SourcePluginRuntime.shared.catalog(plugin: plugin, refresh: refresh)
             })
         }
         for task in pending { await task.value }
         loadedOnce = true
+        publish()
         writeSkippedLog(for: comics)
     }
 
@@ -77,7 +91,9 @@ final class CatalogAggregator {
     func refreshPlugin(_ id: String) async {
         invalidatePlugin(id)
         guard let plugin = SourcePluginStore.shared.plugin(id: id), plugin.enabled else { return }
-        await start(key: "plugin:" + id, name: plugin.name, cacheKey: cacheKey(plugin)) {
+        await start(key: "plugin:" + id, name: plugin.name, cacheKey: cacheKey(plugin), continuation: { url in
+            try await SourcePluginRuntime.shared.catalog(plugin: plugin, at: url)
+        }) {
             try await SourcePluginRuntime.shared.catalog(plugin: plugin, refresh: true)
         }.value
     }
@@ -88,6 +104,9 @@ final class CatalogAggregator {
 
     func isLoadingSource(_ key: String) -> Bool { tasks[key] != nil }
 
+    /// Preserve source boundaries for the Online catalogue selector.
+    func catalog(forSourceKey key: String) -> RemoteCatalog? { results[key] }
+
     func retrySource(_ key: String) async {
         if key.hasPrefix("plugin:") { await refreshPlugin(String(key.dropFirst(7))); return }
         guard let source = CatalogSourceStore.shared.sources.first(where: { $0.id == key }) else { return }
@@ -96,7 +115,8 @@ final class CatalogAggregator {
         }.value
     }
 
-    private func start(key: String, name: String, cacheKey: String,
+    func start(key: String, name: String, cacheKey: String,
+                       continuation: (@MainActor (URL) async throws -> RemoteCatalog)? = nil,
                        fetch: @escaping @MainActor () async throws -> RemoteCatalog) -> Task<Void, Never> {
         if let task = tasks[key] { return task }
         let generation = UUID()
@@ -104,16 +124,37 @@ final class CatalogAggregator {
         loading = true
         let task = Task { @MainActor in
             do {
-                let result = try await fetch()
-                guard !Task.isCancelled, self.generations[key] == generation else { return }
-                self.results[key] = result
-                self.failures[key] = nil
-                self.cachedSources.remove(key)
-                await self.diskCache.save(result, key: cacheKey)
-                guard self.generations[key] == generation else { return }
+                var result = try await fetch()
+                var visited = Set([result.sourceURL])
+                var batches = 0
+                while true {
+                    guard !Task.isCancelled, self.generations[key] == generation else { return }
+                    self.results[key] = result
+                    self.failures[key] = nil
+                    self.cachedSources.remove(key)
+                    self.publish() // Show each batch without waiting for the whole crawl.
+                    if batches % 10 == 0 || result.continuationURL == nil {
+                        await self.diskCache.save(result, key: cacheKey)
+                    }
+                    guard let next = result.continuationURL, let continuation else { break }
+                    guard visited.insert(next).inserted else {
+                        throw SourcePluginRuntime.PluginError.invalidPlugin("catalog continuation repeated a URL")
+                    }
+                    try Task.checkCancellation()
+                    guard self.generations[key] == generation else { return }
+                    // Let visible covers and reader actions acquire the plugin worker
+                    // between background batches instead of waiting for the whole crawl.
+                    try await Task.sleep(for: .milliseconds(50))
+                    result = result.merging(try await continuation(next))
+                    batches += 1
+                }
             } catch {
                 guard !Task.isCancelled, self.generations[key] == generation else { return }
-                if self.results[key] != nil { self.cachedSources.insert(key) }
+                if let partial = self.results[key] {
+                    self.cachedSources.insert(key)
+                    await self.diskCache.save(partial, key: cacheKey)
+                    guard !Task.isCancelled, self.generations[key] == generation else { return }
+                }
                 self.failures[key] = SourceFailure(id: key, name: name, detail: SourcePluginDiagnostics.redacted(error.localizedDescription))
             }
             self.tasks[key] = nil

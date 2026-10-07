@@ -130,7 +130,14 @@ enum SourcePluginContract {
             "mirrors": $0.mirrors.map(\.absoluteString), "hasMirrors": $0.hasMirrors,
             "size": $0.size as Any? ?? NSNull(), "format": $0.format as Any? ?? NSNull()] as [String: Any] },
             "catalogs": folders.map { ["name": $0.name, "url": $0.url.absoluteString] }]
-        return (RemoteCatalog(name: name, sourceURL: baseURL, sourceID: plugin.id, comics: comics, childCatalogs: folders), warnings, stringify(normalized))
+        let continuation: URL?
+        if let raw = object["continuationURL"] as? String {
+            guard let url = httpURL(raw, relativeTo: baseURL) else {
+                throw Failure.invalidResultDetail("continuationURL must use HTTP(S)")
+            }
+            continuation = url
+        } else { continuation = nil }
+        return (RemoteCatalog(name: name, sourceURL: baseURL, sourceID: plugin.id, comics: comics, childCatalogs: folders, continuationURL: continuation), warnings, stringify(normalized))
     }
     static func pages(_ json: String, pluginID: String, baseURL: URL) throws -> (pages: [URL], resources: [PluginResourceRequest], warnings: [String], json: String) {
         let object = try object(json, limit: 4_000_000)

@@ -28,6 +28,15 @@
 
     function diagnostic(event) { operationContext.diagnostic?.(event); }
 
+    function throttled() {
+        try { return Number(localStorage.getItem(`${CACHE_KEY}.throttledUntil`)) > Date.now(); }
+        catch (_) { return false; }
+    }
+    function slowDown() {
+        try { localStorage.setItem(`${CACHE_KEY}.throttledUntil`, String(Date.now() + 5 * 60 * 1000)); }
+        catch (_) {}
+    }
+
     function clean(text) {
         return (text || "")
             .replace(/\s+/g, " ")
@@ -162,6 +171,7 @@
                 if (response.ok) html = await response.text();
             } catch (error) {
                 if (operationContext.signal?.aborted || attempt === maxAttempts) throw error;
+                slowDown();
                 diagnostic({ type: "retry", attempt, reason: error.name });
                 await sleep(1000 * attempt);
                 continue;
@@ -175,6 +185,7 @@
                 return new DOMParser().parseFromString(html, "text/html");
             }
 
+            if (RETRYABLE_STATUS.has(response.status)) slowDown();
             if (!RETRYABLE_STATUS.has(response.status) || attempt === maxAttempts) {
                 throw new Error(
                     `ReadComicsOnline returned HTTP ${response.status} for ${url}`
@@ -185,10 +196,6 @@
         }
 
         throw new Error(`ReadComicsOnline request failed for ${url}`);
-    }
-
-    async function fetchCatalogPage(page) {
-        return fetchCatalogPageURL(`${ORIGIN}/comic-list?page=${page}`, true);
     }
 
     async function fetchCatalogPageURL(url, paced = false) {
@@ -210,27 +217,56 @@
         return result;
     }
 
-    async function loadFullCatalog(first) {
-        if (first.cards.length === 0 && first.pageCount <= 1) {
-            throw new Error("ReadComicsOnline returned no catalog entries. The Cloudflare check may need solving.");
-        }
+    function catalogBatch(result, page, lastPage = page) {
+        const buildingKey = `${CACHE_KEY}.building`;
+        let comics = [...result.cards];
+        try {
+            const previous = JSON.parse(localStorage.getItem(buildingKey));
+            if (page > 1 && previous?.nextPage === page && Array.isArray(previous.comics)) {
+                const seen = new Set(previous.comics.map(item => item.id));
+                comics = previous.comics.concat(result.cards.filter(item => !seen.has(item.id)));
+            }
+        } catch (_) {}
+        const nextPage = lastPage < result.pageCount ? lastPage + 1 : null;
+        try {
+            if (nextPage) localStorage.setItem(buildingKey, JSON.stringify({ comics, nextPage }));
+            else {
+                if (page === 1 || JSON.parse(localStorage.getItem(buildingKey))?.nextPage === page) {
+                    saveCatalog(comics);
+                }
+                localStorage.removeItem(buildingKey);
+            }
+        } catch (_) {}
+        return { name: "ReadComicsOnline", comics: result.cards, catalogs: [],
+            continuationURL: nextPage ? `${ORIGIN}/comic-list?page=${nextPage}` : null };
+    }
 
-        const all = [...first.cards];
-        const seen = new Set(all.map(item => item.id));
-
-        // ReadComicsOnline can return HTTP 520 when several catalog pages are
-        // requested concurrently. Fetch one page at a time and keep a small delay between requests.
-        for (let page = 2; page <= first.pageCount; page++) {
-            const result = await fetchCatalogPage(page);
-            for (const item of result.cards) {
-                if (seen.has(item.id)) continue;
-                seen.add(item.id);
-                all.push(item);
+    async function loadCatalogBatch(page) {
+        const first = await fetchCatalogPageURL(`${ORIGIN}/comic-list?page=${page}`, throttled());
+        // Keep the first visit instant. Later batches cover up to six website pages.
+        if (page === 1) return catalogBatch(first, page);
+        const last = Math.min(first.pageCount, page + 5);
+        const results = new Map([[page, first]]);
+        let next = page + 1;
+        async function worker(index) {
+            while (next <= last) {
+                // Switch to one paced worker if the site starts rejecting requests.
+                if (index > 0 && throttled()) return;
+                const current = next++;
+                const result = await fetchCatalogPageURL(`${ORIGIN}/comic-list?page=${current}`, throttled());
+                results.set(current, result);
             }
         }
-
-        all.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }));
-        return all;
+        await Promise.all([worker(0), worker(1)]);
+        const seen = new Set();
+        const cards = [];
+        for (let current = page; current <= last; current++) {
+            for (const card of results.get(current).cards) {
+                if (seen.has(card.id)) continue;
+                seen.add(card.id); cards.push(card);
+            }
+        }
+        return catalogBatch({ cards, pageCount: first.pageCount }, page, last);
     }
 
     function cachedCatalog() {
@@ -348,19 +384,12 @@
         manifest: {
             id: "readcomicsonline",
             name: "ReadComicsOnline",
-            version: "1.3.0",
+            version: "1.5.0",
             apiVersion: 1,
-            operationTimeoutSeconds: 900,
-            homepage: `${ORIGIN}/comic/spawn-1992`,
+            operationTimeoutSeconds: 60,
+            homepage: `${ORIGIN}/`,
             description: "ReadComicsOnline catalog and streamed chapter reader",
-            capabilities: ["browse", "read", "browser-session"],
-            settings: [{
-                id: "fullCatalog",
-                title: "Load entire catalog",
-                description: "Fetch every catalog page for global search. The first load can take several minutes; otherwise browse one page at a time.",
-                type: "bool",
-                defaultValue: false
-            }]
+            capabilities: ["browse", "read", "browser-session", "static-session", "cached-catalog", "first-page-covers"]
         },
 
         browseURL: `${ORIGIN}/comic-list?page=1`,
@@ -379,27 +408,12 @@
             }
 
             if (targetURL.pathname === "/comic-list") {
-                const isFirstPage = (targetURL.searchParams.get("page") || "1") === "1";
-                const fullCatalog = globalThis.ComicViewerSource.settings?.fullCatalog === true && isFirstPage;
-                if (fullCatalog) {
-                    const cached = cachedCatalog();
-                    if (cached) {
-                        return { name: "ReadComicsOnline", comics: cached, catalogs: [] };
-                    }
-                }
-
-                const first = await fetchCatalogPageURL(targetURL.href);
-                if (fullCatalog) {
-                    const comics = await loadFullCatalog(first);
-                    saveCatalog(comics);
-                    return { name: "ReadComicsOnline", comics, catalogs: [] };
-                }
                 const page = Math.max(1, Number(targetURL.searchParams.get("page")) || 1);
-                const catalogs = page < first.pageCount ? [{
-                    name: `Next page (${page + 1})`,
-                    url: `${ORIGIN}/comic-list?page=${page + 1}`
-                }] : [];
-                return { name: `ReadComicsOnline · Page ${page}`, comics: first.cards, catalogs };
+                if (page === 1) {
+                    const cached = cachedCatalog();
+                    if (cached) return { name: "ReadComicsOnline", comics: cached, catalogs: [] };
+                }
+                return loadCatalogBatch(page);
             }
 
             if (/^\/comic\/[a-z0-9-]+\/?$/i.test(targetURL.pathname)) {
@@ -427,9 +441,18 @@
                 throw new Error("ReadComicsOnline page must stay on readcomicsonline.ru");
             }
 
+            const cacheKey = `${CACHE_KEY}.issue.${targetURL.href}`;
+            try {
+                const cached = JSON.parse(localStorage.getItem(cacheKey));
+                if (cached && Date.now() - cached.savedAt < CACHE_MAX_AGE
+                    && Array.isArray(cached.pages) && cached.pages.length) {
+                    return { pages: cached.pages.map(url => imageResource(url, targetURL.href)) };
+                }
+            } catch (_) {}
             const doc = await fetchDocument(targetURL.href);
             const pages = pageURLs(doc, targetURL.href);
             if (!pages.length) throw new Error("No chapter images found. Check the source session or page selectors.");
+            try { localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), pages })); } catch (_) {}
             return { pages: pages.map(url => imageResource(url, targetURL.href)) };
         }
 

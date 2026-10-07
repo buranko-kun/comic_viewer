@@ -18,7 +18,10 @@ struct LibraryView: View {
     @State private var keyMonitor = KeyMonitor()
     @State private var pendingNewCollectionItem: CollectionItem?
     @State private var pendingDelete: Comic?
+    @State private var pendingDeleteFolder: LibraryGroup?
+    @State private var folderDeleteError: String?
     @State private var pendingReset: Comic?
+    @State private var pendingResetFolder: LibraryGroup?
     // Chapters of the currently opened comic, loaded async (archives need extraction).
     @State private var chapterRefs: [ChapterRef] = []
     @State private var loadingChapters = false
@@ -36,10 +39,7 @@ struct LibraryView: View {
     @State private var pendingTorrentSource: URL?
 
     private var homeSmartCollections: [(kind: SmartCollectionKind, comics: [Comic])] {
-        SmartCollectionKind.allCases.compactMap { kind in
-            let comics = kind.comics(in: library).filter { !$0.isRemote }
-            return comics.isEmpty ? nil : (kind, comics)
-        }
+        SmartCollectionKind.homeShelves(in: library)
     }
 
     private enum LocalFilter: String, CaseIterable, Identifiable {
@@ -143,8 +143,13 @@ struct LibraryView: View {
         }
         .sheet(item: $pendingNewCollectionItem) { NewCollectionSheet(item: $0) }
         .sheet(item: $pendingReset) { comic in
-            ResetReadingSheet(comic: comic) { removeChapters in
+            ResetReadingSheet(title: comic.title) { removeChapters in
                 library.resetState(comic, removingChapters: removeChapters)
+            }
+        }
+        .sheet(item: $pendingResetFolder) { folder in
+            ResetReadingSheet(title: folder.name, includesFolder: true) { removeChapters in
+                library.resetFolder(folder.url, removingChapters: removeChapters)
             }
         }
         .sheet(item: $pendingDelete) { comic in
@@ -154,6 +159,25 @@ struct LibraryView: View {
                                  library.delete(comic, fromDisk: fromDisk)
                                  pendingDelete = nil
                              })
+        }
+        .sheet(item: $pendingDeleteFolder) { group in
+            DeleteFolderSheet(group: group, onCancel: { pendingDeleteFolder = nil }) {
+                do {
+                    try library.deleteFolder(group.url)
+                    pendingDeleteFolder = nil
+                } catch {
+                    pendingDeleteFolder = nil
+                    folderDeleteError = error.localizedDescription
+                }
+            }
+        }
+        .alert("Couldn't delete folder", isPresented: Binding(
+            get: { folderDeleteError != nil },
+            set: { if !$0 { folderDeleteError = nil } }
+        )) {
+            Button("OK") { folderDeleteError = nil }
+        } message: {
+            Text(folderDeleteError ?? "")
         }
         .sheet(isPresented: Binding(
             get: { pendingTorrentSource != nil },
@@ -171,17 +195,19 @@ struct LibraryView: View {
         .task(id: router.selectedComic?.id) { await loadChapters() }
     }
 
-    /// Esc pops one level up the library hierarchy (chapter grid → issue grid → series
-    /// gallery). Non-Esc and ⌘-combos pass through so menu shortcuts still work; a modal
-    /// panel (Add Folder / Open) keeps its own Escape.
+    /// Escape moves up one library level, matching the visible back control.
     private func handleKey(_ e: NSEvent) -> Bool {
         guard !e.modifierFlags.contains(.command), e.keyCode == 53,
               NSApp.modalWindow == nil else { return false }
-        return router.escapeBack()
+        router.escapeBack()
+        return true
     }
 
     @ViewBuilder private var content: some View {
-        if library.folders.isEmpty {
+        // Streamed reading history can populate Home even without a local library.
+        if !localOnly && router.currentDir == nil && router.selectedComic == nil && !homeSmartCollections.isEmpty {
+            folderGrid
+        } else if library.folders.isEmpty {
             emptyState
         } else if library.comics.isEmpty {
             emptyScan
@@ -333,6 +359,11 @@ struct LibraryView: View {
         return comicGrid(header: hasShelves ? AnyView(homeHeader(smartCollections)) : nil) {
             ForEach(entries.groups) { group in
                 GroupCard(group: group, cache: coverCache) { router.openGroup(group) }
+                    .contextMenu {
+                        Button("Open in Finder") { NSWorkspace.shared.activateFileViewerSelecting([group.url]) }
+                        Button("Reset Reading…") { pendingResetFolder = group }
+                        Button("Delete Folder…", role: .destructive) { pendingDeleteFolder = group }
+                    }
             }
             ForEach(visibleIssues) { comic in
                 CoverCell(comic: comic, cache: coverCache) {
@@ -532,7 +563,8 @@ struct LibraryView: View {
         let subs = entries.groups.count
         return SectionToolbar {
             HStack(spacing: 10) {
-                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }.help("Back to \(parentLabel)")
+                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }
+                    .help("Back to \(parentLabel)").pointingHandCursor()
                 SectionHeading(
                     title: dir.map { LibraryModel.displayName(for: $0) } ?? "Home",
                     detail: countLabel(subs: subs, issues: issues)
@@ -560,7 +592,8 @@ struct LibraryView: View {
     private func chapterToolbar(_ comic: Comic, currentOrdinal: Int?) -> some View {
         SectionToolbar {
             HStack(spacing: 10) {
-                Button { router.closeComic() } label: { Image(systemName: "chevron.left") }.help("Back to issues")
+                Button { router.closeComic() } label: { Image(systemName: "chevron.left") }
+                    .help("Back to issues").pointingHandCursor()
                 SectionHeading(title: comic.title, detail: "\(comic.chapterCount) chapters")
             }
         } search: { librarySearchField } actions: {
@@ -656,6 +689,7 @@ private struct CoverBox<Placeholder: View, BottomOverlay: View>: View {
 }
 
 private struct GroupCard: View {
+    @Environment(LibraryModel.self) private var library
     let group: LibraryGroup
     let cache: ThumbnailCache
     let action: () -> Void
@@ -676,7 +710,7 @@ private struct GroupCard: View {
         }
         .buttonStyle(.plain)
         .hoverLift()
-        .task(id: group.id) {
+        .task(id: group.id + (group.coverURL?.absoluteString ?? "") + "|\(library.coverRevision)") {
             var url = group.coverURL
             if url == nil, let a = group.coverArchive { url = await ArchiveCover.make(for: a) }
             if let url { cg = await loadCover(url, local: cache) }
@@ -724,12 +758,11 @@ private func loadCover(_ url: URL, local: ThumbnailCache, maxPixel: Int = 500) a
 }
 
 private struct CoverCell: View {
+    @Environment(LibraryModel.self) private var library
     let comic: Comic
     let cache: ThumbnailCache
     let action: () -> Void
     @State private var cg: CGImage?
-    @State private var showDetail = false
-    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -742,19 +775,6 @@ private struct CoverCell: View {
                         ProgressView()
                     }
                 }, bottomOverlay: { progressBadge })
-                .overlay(alignment: .topTrailing) {
-                    // Info button (on hover) → metadata detail popover.
-                    if hovering || showDetail {
-                        Button { showDetail = true } label: {
-                            Image(systemName: "info.circle.fill").font(.body)
-                                .foregroundStyle(.white).shadow(radius: 2).padding(6)
-                        }
-                        .buttonStyle(.plain).pointingHandCursor()
-                        .popover(isPresented: $showDetail, arrowEdge: .trailing) {
-                            ComicDetailPopover(comic: comic)
-                        }
-                    }
-                }
 
                 Text(comic.title).font(.callout.weight(.medium))
                     .lineLimit(2, reservesSpace: true).multilineTextAlignment(.leading)
@@ -763,9 +783,8 @@ private struct CoverCell: View {
         }
         .buttonStyle(.plain)
         .hoverLift()
-        .onHover { hovering = $0 }
         .help(comic.tooltip ?? comic.title)
-        .task(id: comic.id) {
+        .task(id: comic.id + (comic.coverURL?.absoluteString ?? "") + "|\(library.coverRevision)") {
             var url = comic.coverURL
             if url == nil, comic.isArchive { url = await ArchiveCover.make(for: comic.url) }
             if let url { cg = await loadCover(url, local: cache) }
@@ -982,6 +1001,7 @@ private struct MetadataFetchSheet: View {
 /// A compact fixed-width cover for the home "Continue Reading" shelf: cover + progress line +
 /// a small percentage, and the comic's title beneath. Tapping resumes at the last page.
 struct ContinueCard: View {
+    @Environment(LibraryModel.self) private var library
     let comic: Comic
     let cache: ThumbnailCache
     let action: () -> Void
@@ -1015,7 +1035,7 @@ struct ContinueCard: View {
         .buttonStyle(.plain)
         .hoverLift()
         .help(comic.tooltip ?? comic.title)
-        .task(id: comic.id) {
+        .task(id: comic.id + (comic.coverURL?.absoluteString ?? "") + "|\(library.coverRevision)") {
             var url = comic.coverURL
             if url == nil, comic.isArchive { url = await ArchiveCover.make(for: comic.url) }
             if let url { cg = await loadCover(url, local: cache) }
@@ -1051,7 +1071,6 @@ struct CollectionShelfCard: View {
         }
         .buttonStyle(.plain)
         .hoverLift()
-        .help(item.title)
     }
 }
 
@@ -1080,6 +1099,28 @@ private extension View {
 }
 
 /// Confirms removing a comic from the library, with an opt-in to also delete the file from disk.
+private struct DeleteFolderSheet: View {
+    let group: LibraryGroup
+    let onCancel: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Delete folder “\(group.name)”?").font(.headline)
+            Text("This folder and everything inside it will be moved to the Trash, including all issues and subfolders.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(group.url.path).font(.caption).foregroundStyle(.secondary)
+                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onCancel).keyboardShortcut(.cancelAction)
+                Button("Move to Trash", role: .destructive, action: onDelete)
+            }
+        }
+        .padding(20).frame(width: 440)
+    }
+}
+
 private struct DeleteComicSheet: View {
     let comic: Comic
     let onCancel: () -> Void
@@ -1112,19 +1153,26 @@ private struct DeleteComicSheet: View {
 
 /// Reset progress, with an explicit opt-in to erase chapter markers as well.
 private struct ResetReadingSheet: View {
-    let comic: Comic
+    let title: String
+    var includesFolder = false
     let onReset: (Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var resetChapters = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Reset reading for \(comic.title)?")
+            Text("Reset reading for \(title)?")
                 .font(.headline)
             Text("Reading progress and its Continue Reading / Recently Read entries will be cleared. Chapter markers are kept unless you select the option below.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if includesFolder {
+                Text("Applies to every comic in this folder and its subfolders.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Text("Local covers will be refreshed from the current first page.")
+                .font(.callout).foregroundStyle(.secondary)
             Toggle("Also reset chapter markers", isOn: $resetChapters)
                 .toggleStyle(.checkbox)
             HStack {

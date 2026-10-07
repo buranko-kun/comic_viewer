@@ -17,9 +17,12 @@ actor ThumbnailCache {
     private var order: [URL] = []                       // oldest → newest
     private var inFlight: [URL: Task<CGImage?, Never>] = [:]
     private let capacity = 800
+    private var revisions: [URL: Int] = [:]
 
-    private static var dir: URL {
-        CentralStore.baseDir.appendingPathComponent("thumbs", isDirectory: true)
+    private let dir: URL
+
+    init(cacheDirectory: URL = CentralStore.baseDir.appendingPathComponent("thumbs", isDirectory: true)) {
+        dir = cacheDirectory
     }
 
     /// Return a thumbnail: memory → disk → generate. Decoding runs off the actor, so calls
@@ -29,14 +32,37 @@ actor ThumbnailCache {
     func thumbnail(for url: URL, maxPixel: Int) async -> CGImage? {
         if !url.isFileURL { return await RemoteImageCache.shared.image(for: url, maxPixel: maxPixel) }
         if let hit = store[url] { touch(url); return hit }
-        if let running = inFlight[url] { return await running.value }
+        let revision = revisions[url, default: 0]
+        if let running = inFlight[url] {
+            let image = await running.value
+            return revisions[url, default: 0] == revision ? image : nil
+        }
 
-        let task = Task.detached(priority: .utility) { Self.loadOrMake(url, maxPixel: maxPixel) }
+        let directory = dir
+        let task = Task.detached(priority: .utility) { Self.loadOrMake(url, maxPixel: maxPixel, directory: directory) }
         inFlight[url] = task
         let cg = await task.value
+        guard revisions[url, default: 0] == revision else { return nil }
         inFlight[url] = nil
         if let cg { insert(url, cg) }
         return cg
+    }
+
+    /// Wait for any old decode to finish before discarding its disk and memory results.
+    func invalidate(_ url: URL) async {
+        guard url.isFileURL else { return }
+        revisions[url, default: 0] += 1
+        let running = inFlight.removeValue(forKey: url)
+        running?.cancel()
+        store[url] = nil
+        order.removeAll { $0 == url }
+        if let running { _ = await running.value }
+        let prefix = CentralStore.sha256(url.path) + "-"
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir,
+                                                                 includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.lastPathComponent.hasPrefix(prefix) {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     /// Decode + cache any not-yet-cached URLs, several at a time, so a grid is ready fast.
@@ -76,9 +102,9 @@ actor ThumbnailCache {
 
     /// A valid on-disk thumbnail (present and newer than its source) is decoded and returned;
     /// otherwise the source is downsampled, persisted, and returned.
-    private nonisolated static func loadOrMake(_ url: URL, maxPixel: Int) -> CGImage? {
+    private nonisolated static func loadOrMake(_ url: URL, maxPixel: Int, directory: URL) -> CGImage? {
         let fm = FileManager.default
-        let file = dir.appendingPathComponent(CentralStore.sha256(url.path) + "-\(maxPixel).jpg")
+        let file = directory.appendingPathComponent(CentralStore.sha256(url.path) + "-\(maxPixel).jpg")
 
         if let cached = mtime(file), let src = mtime(url), cached >= src,
            let cg = ImageLoader.decodeDisplay(file, maxPixel: maxPixel)?.cgImage {
@@ -86,7 +112,8 @@ actor ThumbnailCache {
         }
 
         guard let cg = ImageLoader.decodeDisplay(url, maxPixel: maxPixel)?.cgImage else { return nil }
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard !Task.isCancelled else { return nil }
+        try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
         writeJPEG(cg, to: file)
         return cg
     }

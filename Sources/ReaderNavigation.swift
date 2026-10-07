@@ -185,6 +185,12 @@ struct ReaderNavigation {
     }
 
     @discardableResult
+    mutating func lastOfChapter() -> Bool {
+        let nextStart = orderedChapterIndices().first { $0 > index }
+        return setIndex(nextStart.map { $0 - 1 } ?? (items.count - 1))
+    }
+
+    @discardableResult
     mutating func jumpToChapter(orderedIndex: Int) -> Bool {
         let idxs = orderedChapterIndices()
         guard idxs.indices.contains(orderedIndex) else { return false }

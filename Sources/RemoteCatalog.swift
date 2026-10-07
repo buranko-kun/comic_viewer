@@ -55,6 +55,17 @@ struct RemoteCatalog: Codable {
     var sourceID: String? = nil
     let comics: [RemoteComic]
     let childCatalogs: [ChildCatalog]
+    /// Additional batches loaded automatically, rather than displayed as folders.
+    var continuationURL: URL? = nil
+
+    func merging(_ batch: RemoteCatalog) -> RemoteCatalog {
+        var comicIDs = Set(comics.map(\.id))
+        var folderIDs = Set(childCatalogs.map(\.id))
+        return RemoteCatalog(name: name, sourceURL: sourceURL, sourceID: sourceID,
+            comics: comics + batch.comics.filter { comicIDs.insert($0.id).inserted },
+            childCatalogs: childCatalogs + batch.childCatalogs.filter { folderIDs.insert($0.id).inserted },
+            continuationURL: batch.continuationURL)
+    }
 
     struct ChildCatalog: Identifiable, Hashable, Codable {
         let name: String

@@ -162,6 +162,20 @@ final class SourcePluginRuntime {
             return true
         }
     }
+
+    /// Opt-in issue thumbnails resolve through the same page parser as the reader.
+    func issueCover(for plugin: SourcePlugin, comic: RemoteComic) async throws -> PluginResourceRequest? {
+        guard comic.canRead, plugin.capabilities?.contains("first-page-covers") == true,
+              let url = comic.pageURL else { return comic.coverRequest }
+        let key = PluginIssueCoverCache.key(plugin: plugin, url: url)
+        if let cached = PluginIssueCoverCache.shared.load(key: key) {
+            PluginResourceRegistry.shared.register(cached)
+            return cached
+        }
+        guard let cover = try await pageResources(for: plugin, comic: comic).first else { return nil }
+        PluginIssueCoverCache.shared.save(cover, key: key)
+        return cover
+    }
     private func installedScript(_ plugin: SourcePlugin) throws -> String {
         guard let script = SourcePluginStore.shared.script(for: plugin) else { throw PluginError.invalidPlugin("installed script is missing") }
         return script

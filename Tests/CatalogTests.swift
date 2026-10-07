@@ -1,9 +1,120 @@
 import XCTest
+import AppKit
 @testable import ComicViewer
 
 /// JSON catalog decoding (relative-URL resolution, format support, forgiving metadata, child
 /// catalogs), provider auto-selection, and `.txt` source parsing.
 final class CatalogTests: XCTestCase {
+    @MainActor
+    func testHistoryRowOutsideToolbarAppliesSearchWithoutOutsideDismissal() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        let field = SearchOutsideClickArea.AreaView(frame: NSRect(x: 200, y: 350, width: 300, height: 34))
+        let regions = SearchDropdownClickRegions()
+        field.regions = regions; field.active = true
+        var query = "", dismissed = false, historyRequested = false
+        field.dismiss = { dismissed = true }
+        field.insideFieldClick = { historyRequested = true }
+        content.addSubview(field)
+        defer { field.stop() }
+        let row = SearchDropdownClickRegion.RegionView(frame: NSRect(x: 200, y: 280, width: 300, height: 32))
+        row.action = { query = "Batman: Year One" }
+        content.addSubview(row)
+        regions.views = [row]
+        func click(_ point: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        field.active = false
+        XCTAssertNotNil(field.handle(try click(NSPoint(x: 250, y: 365))))
+        XCTAssertFalse(historyRequested)
+        field.active = true
+        XCTAssertNotNil(field.handle(try click(NSPoint(x: 250, y: 365))))
+        XCTAssertTrue(historyRequested)
+        XCTAssertFalse(dismissed)
+        XCTAssertNil(field.handle(try click(NSPoint(x: 250, y: 295))))
+        XCTAssertEqual(query, "Batman: Year One")
+        XCTAssertFalse(dismissed)
+        XCTAssertNotNil(field.handle(try click(NSPoint(x: 100, y: 100))))
+        XCTAssertTrue(dismissed)
+    }
+
+    @MainActor
+    func testBrowseBackRestoresNestedSearchAndScrollPosition() {
+        let state = BrowseState()
+        state.selectedSourceKey = "plugin:fixture"
+        state.searchText = "Batman"; state.activeQuery = "Batman"
+        state.windowStart = 400; state.windowCount = 800; state.anchorID = "batman-issue"
+        state.resultsToken = "root-token"
+        state.searchResults = []
+        let catalog = RemoteCatalog(name: "Batman", sourceURL: URL(string: "https://fixture.invalid/batman")!,
+            sourceID: "fixture", comics: [], childCatalogs: [])
+        state.push(catalog)
+        XCTAssertEqual(state.searchText, "")
+        state.searchText = "Annual"; state.activeQuery = "Annual"; state.anchorID = "annual"
+        state.push(catalog)
+        XCTAssertNil(state.pop())
+        XCTAssertEqual(state.searchText, "Annual")
+        XCTAssertEqual(state.anchorID, "annual")
+        XCTAssertNil(state.pop())
+        XCTAssertEqual(state.searchText, "Batman")
+        XCTAssertEqual(state.activeQuery, "Batman")
+        XCTAssertEqual(state.resultsToken, "root-token")
+        XCTAssertEqual(state.windowStart, 400)
+        XCTAssertEqual(state.windowCount, 800)
+        XCTAssertEqual(state.anchorID, "batman-issue")
+    }
+
+    @MainActor
+    func testSavedSeriesReturnsToCollectionAndPreservesOnlineSession() {
+        let state = BrowseState()
+        state.searchText = "Superman"; state.activeQuery = "Superman"; state.anchorID = "superman"
+        let catalog = RemoteCatalog(name: "Batman", sourceURL: URL(string: "https://fixture.invalid/batman")!,
+            sourceID: "fixture", comics: [], childCatalogs: [])
+        state.beginExternal(catalog, returningTo: .collections)
+        XCTAssertEqual(state.selectedSourceKey, "plugin:fixture")
+        XCTAssertEqual(state.pop(), .collections)
+        XCTAssertEqual(state.searchText, "Superman")
+        XCTAssertEqual(state.anchorID, "superman")
+        XCTAssertTrue(state.stack.isEmpty)
+    }
+
+    func testSavedPluginSeriesRetainsActionAndLegacyFavoriteResolves() throws {
+        var comic = RemoteComic(id: "series", title: "Absolute Batman", description: nil,
+            coverString: nil, series: nil, mirrors: [], format: nil, metadata: [:], sourceName: "Fixture")
+        comic.sourceID = "fixture"; comic.opensCatalog = true
+        comic.pageString = "https://fixture.invalid/batman"
+        let saved = CollectionItem(remote: comic)
+        let decoded = try JSONDecoder().decode(CollectionItem.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(decoded.resolvedRemote(in: [])?.sourceID, "fixture")
+        XCTAssertTrue(decoded.resolvedRemote(in: [])?.opensCatalog == true)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) as? [String: Any])
+        legacy.removeValue(forKey: "remoteComic")
+        let old = try JSONDecoder().decode(CollectionItem.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertEqual(old.resolvedRemote(in: [comic]), comic)
+    }
+
+    @MainActor
+    func testSearchHistoryPersistsDeduplicatesAndSuggestsCatalogueTitles() throws {
+        let suite = "ComicViewer.SearchTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let history = OnlineSearchHistory(defaults: defaults)
+        history.record(" Batman "); history.record("Superman"); history.record("batman")
+        XCTAssertEqual(history.recent, ["batman", "Superman"])
+        XCTAssertEqual(history.suggestions(for: "", titles: ["Batman: Year One"]), ["batman", "Superman"])
+        XCTAssertEqual(history.suggestions(for: "bat", titles: ["Batman: Year One", "Absolute Batman", "Superman"]),
+                       ["Batman: Year One", "Absolute Batman"])
+        let suggestions = history.suggestions(for: "absolute", titles: ["Absolute Batman", "Absolute Superman", "Absolute Batman"])
+        XCTAssertEqual(suggestions, ["Absolute Batman", "Absolute Superman"])
+        XCTAssertEqual(OnlineSearchHistory(defaults: defaults).recent, history.recent)
+        history.clear()
+        XCTAssertTrue(OnlineSearchHistory(defaults: defaults).recent.isEmpty)
+        XCTAssertTrue(history.suggestions(for: "", titles: ["Batman: Year One"]).isEmpty)
+    }
 
     private let sourceURL = URL(string: "https://server.example/comics/index.json")!
 
