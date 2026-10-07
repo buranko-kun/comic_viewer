@@ -1,0 +1,76 @@
+import Foundation
+
+struct CatalogSource: Identifiable, Hashable, Codable {
+    var name: String
+    var url: URL
+    var id: String { url.absoluteString }
+}
+
+struct RemoteComic: Identifiable, Hashable, Codable {
+    let id: String
+    let title: String
+    let description: String?
+    let coverString: String?
+    let series: String?
+    let mirrors: [URL]
+    var hasMirrors: Bool = false
+    let format: String?
+    let metadata: [String: String]
+    let sourceName: String
+    var sourceID: String? = nil
+    var pageString: String? = nil
+    var mustRead: Bool = false
+    var mustReadTitle: String? = nil
+    var size: String? = nil
+    /// Plugin sources can use a comic card as a navigable catalog entry rather than a readable issue.
+    var opensCatalog: Bool = false
+    /// Plugin sources can resolve the card into page image URLs and open it directly in the reader.
+    var canRead: Bool = false
+    var coverResource: PluginResourceRequest? = nil
+
+    var coverRequest: PluginResourceRequest? { coverResource ?? coverURL.map { PluginResourceRegistry.shared.request(for: $0) } }
+
+    var coverURL: URL? { coverResource?.url ?? coverString.flatMap { URL(string: $0) } }
+    var pageURL: URL? { pageString.flatMap { URL(string: $0) } }
+
+    var resolvedFormat: String? {
+        if let f = format?.lowercased(), !f.isEmpty { return f }
+        let exts = mirrors.map { $0.pathExtension.lowercased() }.filter { !$0.isEmpty }
+        if let supported = exts.first(where: { ArchiveExtractor.extensions.contains($0) }) { return supported }
+        return exts.first
+    }
+
+    var isSupported: Bool {
+        ArchiveExtractor.extensions.contains(resolvedFormat ?? "")
+    }
+
+    var metadataRows: [(key: String, value: String)] {
+        metadata.sorted { $0.key < $1.key }.map { (key: $0.key, value: $0.value) }
+    }
+}
+
+struct RemoteCatalog: Codable {
+    let name: String
+    let sourceURL: URL
+    var sourceID: String? = nil
+    let comics: [RemoteComic]
+    let childCatalogs: [ChildCatalog]
+    /// Additional batches loaded automatically, rather than displayed as folders.
+    var continuationURL: URL? = nil
+
+    func merging(_ batch: RemoteCatalog) -> RemoteCatalog {
+        var comicIDs = Set(comics.map(\.id))
+        var folderIDs = Set(childCatalogs.map(\.id))
+        return RemoteCatalog(name: name, sourceURL: sourceURL, sourceID: sourceID,
+            comics: comics + batch.comics.filter { comicIDs.insert($0.id).inserted },
+            childCatalogs: childCatalogs + batch.childCatalogs.filter { folderIDs.insert($0.id).inserted },
+            continuationURL: batch.continuationURL)
+    }
+
+    struct ChildCatalog: Identifiable, Hashable, Codable {
+        let name: String
+        let url: URL
+        var sourceID: String? = nil
+        var id: String { (sourceID ?? "catalog") + ":" + url.absoluteString }
+    }
+}

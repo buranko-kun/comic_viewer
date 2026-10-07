@@ -1,0 +1,228 @@
+import SwiftUI
+import AppKit
+
+/// The Downloads panel: every queued, in-flight, and finished download in one place, with
+/// per-item cancel / retry / open-in-browser controls. Presented as a sheet from the Online view;
+/// downloads keep running whether or not it's open. Styled to match the app (black, white, red).
+struct DownloadsView: View {
+    @Environment(\.dismiss) private var dismiss
+    private let dl = DownloadManager.shared
+    @State private var destination = DownloadDestinationStore.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider().overlay(.white.opacity(0.12))
+            if dl.jobs.isEmpty { empty } else { list }
+        }
+        .frame(width: 460, height: 520)
+        .background(Color.black)
+        .tint(.white)
+    }
+
+    private var header: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Downloads").font(.headline).foregroundStyle(.white)
+                    Text(summary).font(.caption2).foregroundStyle(.white.opacity(0.5))
+                }
+                Spacer()
+                if dl.hasFinished {
+                    Button("Clear finished") { dl.clearFinished() }
+                        .buttonStyle(.borderless).pointingHandCursor()
+                }
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(PanelDoneButtonStyle())
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.white.opacity(0.45))
+                Text(destination.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+
+                Menu {
+                    Button("Choose Download Folder…") {
+                        destination.chooseFolder()
+                    }
+                    Button("Open Destination in Finder") {
+                        destination.openInFinder()
+                    }
+                    if destination.isCustom {
+                        Divider()
+                        Button("Use Library (automatic)") {
+                            destination.resetToAutomatic()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .help("Download destination")
+                .pointingHandCursor()
+            }
+        }
+        .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 16)
+    }
+
+    private var summary: String {
+        let active = dl.jobs.filter { if case .downloading = $0.status { return true }; return false }.count
+        let queued = dl.jobs.filter {
+            if case .queued = $0.status { return true }
+            return false
+        }.count
+
+        if active == 0 {
+            return dl.jobs.isEmpty ? "No downloads" : "\(dl.jobs.filter { $0.status == .done }.count) completed · \(dl.jobs.filter { $0.status == .failed || $0.status == .needsBrowser }.count) need attention"
+        }
+
+        if queued > 0 {
+            return "\(active) active · \(queued) queued"
+        }
+
+        return "\(active) active"
+    }
+
+    private var empty: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle").font(.system(size: 44))
+                .foregroundStyle(.white.opacity(0.4))
+            Text("No downloads yet").font(.title3.bold()).foregroundStyle(.white)
+            Text("Tap the ⬇ on any online comic to download it here.")
+                .font(.callout).foregroundStyle(.white.opacity(0.55))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).padding(30)
+    }
+
+    private var list: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(dl.jobs) { job in
+                    DownloadRow(job: job)
+                    Divider().overlay(.white.opacity(0.08))
+                }
+            }
+        }
+    }
+}
+
+struct PanelDoneButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PanelDoneButton(configuration: configuration)
+    }
+
+    private struct PanelDoneButton: View {
+        let configuration: ButtonStyle.Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    (hovering || configuration.isPressed ? Color.red.opacity(0.82) : Color.white.opacity(0.10)),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(.white.opacity(hovering ? 0.22 : 0.10), lineWidth: 1)
+                }
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(.easeOut(duration: 0.14), value: hovering)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+                .onHover { hovering = $0 }
+                .pointingHandCursor()
+        }
+    }
+}
+
+/// One row in the Downloads panel: cover, title/source, a status line (with a progress bar while
+/// downloading), and the action that fits its state.
+private struct DownloadRow: View {
+    let job: DownloadManager.Job
+    private let dl = DownloadManager.shared
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CollectionCover(item: job.item)
+                .frame(width: 40, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.white.opacity(0.12), lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(TitleCleaner.clean(job.item.title))
+                    .font(.callout.weight(.medium)).foregroundStyle(.white).lineLimit(2)
+                statusLine
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            action
+        }
+        .padding(.horizontal, 18).padding(.vertical, 10)
+    }
+
+    @ViewBuilder private var statusLine: some View {
+        switch job.status {
+        case .queued:
+            Text("Queued").font(.caption2).foregroundStyle(.white.opacity(0.5))
+        case .downloading(let frac):
+            HStack(spacing: 8) {
+                if let frac {
+                    ProgressView(value: frac, total: 1)
+                        .progressViewStyle(.linear).tint(.red).frame(maxWidth: 160)
+                    Text("\(Int(frac * 100))%")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+                } else {
+                    ProgressView().progressViewStyle(.linear).tint(.red).frame(maxWidth: 160)
+                    Text("Downloading…")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+                }
+            }
+        case .done:
+            Label("Downloaded", systemImage: "checkmark.circle.fill")
+                .font(.caption2).foregroundStyle(.green)
+        case .needsBrowser:
+            Text(job.errorMessage ?? "No direct link — open in browser")
+                .font(.caption2).foregroundStyle(.orange)
+        case .failed:
+            Text(job.errorMessage ?? "Download failed. Retry or open the source in your browser.").font(.caption2).foregroundStyle(.orange)
+        case .idle:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder private var action: some View {
+        switch job.status {
+        case .queued, .downloading:
+            iconButton("xmark.circle.fill", help: "Cancel") { dl.cancel(job.id) }
+        case .failed, .needsBrowser:
+            HStack {
+                iconButton("arrow.clockwise.circle.fill", help: "Retry") { dl.retry(job.id) }
+                iconButton("arrow.up.forward.circle.fill", help: "Open in browser") { dl.openInBrowser(job.item) }
+            }
+        case .done:
+            iconButton("xmark.circle", help: "Remove from list") { dl.cancel(job.id) }
+        case .idle:
+            EmptyView()
+        }
+    }
+
+    private func iconButton(_ system: String, help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system).font(.title3).foregroundStyle(.white.opacity(0.8))
+        }
+        .buttonStyle(.plain).help(help).pointingHandCursor()
+    }
+}

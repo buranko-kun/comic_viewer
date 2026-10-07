@@ -1,0 +1,81 @@
+# ComicViewer
+
+A native **macOS** comic reader with an **iOS** companion, built in SwiftUI.
+
+## Features
+
+- **Reader** — paged reading, pinch/scroll zoom & pan, Horizontal/Vertical view
+  (rotate portrait pages), content-aware fit-to-width, user-created named chapters, resume.
+- **Library** — folders and archives (`.cbz`/`.cbr`/`.zip`/`.rar`/`.7z`), Continue Reading,
+  Collections, `ComicInfo.xml` metadata + on-demand fetch from ComicVine.
+- **Online sources** — a generic runtime for user-installed JavaScript plugins and configurable
+  catalogue feeds. No website-specific integrations are distributed in this repository.
+- **LAN sharing** — an opt-in Wi-Fi server (pairing code + Bonjour) exposing:
+  - a **JSON API** consumed by the native iOS client (`iOS/`), and
+  - an **OPDS catalog** any reader (KOReader, Panels, Chunky, …) can browse and download from.
+  Large archives stream page-by-page (no full extraction).
+
+## Build
+
+The Xcode project is generated with [XcodeGen](https://github.com/yonasstephen/xcodegen) from
+`project.yml`.
+
+```bash
+xcodegen generate                                   # regenerate ComicViewer.xcodeproj after edits
+xcodebuild -scheme ComicViewer -configuration Debug build   # macOS app
+```
+
+Targets: `ComicViewer` (macOS), `ComicViewerMobile` (iOS), `ComicViewerTests`.
+The project uses generic example bundle identifiers. Replace them and configure your signing team
+in Xcode before distributing an app build.
+
+### iOS device install
+
+```bash
+xcodebuild -project ComicViewer.xcodeproj -scheme ComicViewerMobile -configuration Debug \
+  -destination 'platform=iOS,id=<device-udid>' -allowProvisioningUpdates build
+xcrun devicectl device install app --device <device-udid> \
+  "<derived-data>/Build/Products/Debug-iphoneos/Comic Viewer.app"
+```
+
+## Headless self-tests
+
+The app runs headless test harnesses via CLI flags, e.g.:
+
+```bash
+ComicViewer --readcomicstest   # connector parser tests
+ComicViewer --chaptertest <folder>
+```
+
+
+### Reader performance diagnostics
+
+The app includes measurement-only instrumentation under the unified logging subsystem
+`org.example.comicviewer`, category `Performance`. It records first-visible-page latency,
+per-page load signposts, image decode time, cache hits/misses, archive preparation/extraction time,
+and remote page probing/loading time.
+
+To inspect the numeric logs from Terminal:
+
+```bash
+log show --style compact --info \
+  --predicate 'subsystem == "org.example.comicviewer" AND category == "Performance"'
+```
+
+For interactive timing, open Instruments → Points of Interest and select the ComicViewer process.
+The `Reader Page Load` signposts can then be compared against cache/decode/archive/network events.
+
+
+## Source plugins
+
+The macOS Online browser supports installable JavaScript source plugins. A plugin can own its URL
+rules and DOM scraper, so new comic sites can be added without modifying or forking the app.
+
+See [SOURCE_PLUGINS.md](SOURCE_PLUGINS.md) and [examples/source-plugin-template.js](examples/source-plugin-template.js).
+
+
+## Torrent sharing
+
+The macOS app can create BitTorrent v1 torrents from comics, folders, or series, seed them directly
+from the original files, copy magnet links, and download `.torrent` files or magnets. See
+[TORRENTS.md](TORRENTS.md).

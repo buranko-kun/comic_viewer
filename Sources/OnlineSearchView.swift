@@ -1,0 +1,305 @@
+import SwiftUI
+import AppKit
+import Observation
+
+/// Shared state for the app-wide Online search field. Keeping the query here lets Home and
+/// the results screen hand off the same text without coupling the two views.
+@MainActor
+@Observable
+final class OnlineSearchState {
+    static let shared = OnlineSearchState()
+    var query = ""
+    var results: [UnifiedSearchItem] = []
+    var resultsToken = ""
+    var resultsQuery = ""
+    var windowStart = 0
+    var windowCount = 400
+    var anchorID: String?
+}
+
+/// A result from any indexed online catalog.
+enum UnifiedSearchItem: Identifiable {
+    case catalog(RemoteComic)
+
+    var id: String {
+        switch self {
+        case .catalog(let comic): return "catalog:" + comic.id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .catalog(let comic): return comic.title
+        }
+    }
+
+    var coverURL: URL? {
+        switch self {
+        case .catalog(let comic): return comic.coverURL
+        }
+    }
+
+    var coverRequest: PluginResourceRequest? {
+        switch self { case .catalog(let comic): return comic.coverRequest }
+    }
+
+    var sourceName: String {
+        switch self {
+        case .catalog(let comic): return comic.sourceName
+        }
+    }
+}
+
+/// Unified search across every loaded online catalog.
+/// The search remains indexed and local after the configured sources have loaded.
+struct OnlineSearchView: View {
+    @Environment(AppRouter.self) private var router
+    @State private var searchState = OnlineSearchState.shared
+    private let aggregator = CatalogAggregator.shared
+
+    private var results: [UnifiedSearchItem] {
+        get { searchState.results }
+        nonmutating set { searchState.results = newValue }
+    }
+    @State private var searching = false
+    @State private var loaded = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var openTask: Task<Void, Never>?
+    @State private var opening = false
+    @State private var openError: String?
+    @State private var retryItem: UnifiedSearchItem?
+
+    var body: some View {
+        @Bindable var state = searchState
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 0) {
+                topBar.zIndex(2)
+                Divider().overlay(.white.opacity(0.12))
+                if let openError {
+                    HStack {
+                        Text(openError).font(.caption)
+                        Button("Retry") { if let item = retryItem { open(item) } }
+                        Button("Dismiss") { self.openError = nil }
+                    }.padding()
+                }
+                if opening {
+                    HStack { ProgressView(); Text("Opening source…"); Button("Cancel") { openTask?.cancel(); opening = false } }
+                        .padding()
+                }
+                content
+            }
+        }
+        .tint(.white)
+        .onAppear {
+            Task { await ensureIndexesLoaded(); runSearch() }
+        }
+        .onDisappear { searchTask?.cancel(); openTask?.cancel() }
+        .onChange(of: state.query) { _, _ in runSearch() }
+        .onChange(of: aggregator.revision) { _, _ in runSearch() }
+    }
+
+    private var topBar: some View {
+        @Bindable var state = searchState
+        return SectionToolbar {
+            HStack(spacing: 10) {
+                Button { router.escapeBack() } label: { Image(systemName: "chevron.left") }
+                    .help("Back to Online").pointingHandCursor()
+                SectionHeading(title: "Online search", detail: "\(results.count) results")
+            }
+        } search: {
+            NavigationSearchField(prompt: "Search all loaded catalogs", text: $state.query, onlineSuggestions: true, suggestionTitles: aggregator.comics.map(\.title))
+        } actions: { EmptyView() }
+    }
+
+    @ViewBuilder private var content: some View {
+        if searchState.query.trimmingCharacters(in: .whitespaces).isEmpty {
+            centered {
+                VStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 44)).foregroundStyle(.white.opacity(0.35))
+                    Text("Search your online catalogs")
+                        .font(.title3.bold()).foregroundStyle(.white)
+                    Text("Searches entries currently loaded from your sources.")
+                        .font(.callout).foregroundStyle(.white.opacity(0.55))
+                        .multilineTextAlignment(.center)
+                }
+                .padding(40)
+            }
+        } else if searching {
+            centered { ProgressView().controlSize(.large) }
+        } else if results.isEmpty {
+            centered {
+                VStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 38)).foregroundStyle(.white.opacity(0.3))
+                    Text("No matches").font(.title3.bold())
+                    Text("Try a title, series name, or character.")
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+        } else {
+            grid
+        }
+    }
+
+    private var grid: some View {
+        @Bindable var state = searchState
+        return WindowedCoverGrid(items: results, letters: [], windowStart: $state.windowStart,
+            windowCount: $state.windowCount, resetKey: state.resultsQuery, showRail: false,
+            restoreID: state.anchorID, onActiveIndex: { index in
+                if results.indices.contains(index) { state.anchorID = results[index].id }
+            }, onReset: { state.anchorID = nil }, header: { EmptyView() }, leading: { EmptyView() }) { item in
+                UnifiedSearchCard(item: item) { open(item) }
+            }
+    }
+
+    private func open(_ item: UnifiedSearchItem) {
+        OnlineSearchHistory.shared.record(searchState.query)
+        openTask?.cancel()
+        retryItem = item
+        openError = nil
+        opening = true
+        openTask = Task { @MainActor in
+            do {
+                switch item {
+                case .catalog(let comic): try await PluginComicOpener.open(comic, router: router, origin: .onlineSearch)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                openError = error.localizedDescription
+            }
+            if !Task.isCancelled { opening = false }
+        }
+    }
+
+    private func ensureIndexesLoaded() async {
+        if !aggregator.loadedOnce {
+            await aggregator.loadRoots()
+        }
+        loaded = true
+    }
+
+    private func runSearch() {
+        searchTask?.cancel()
+        let q = searchState.query.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty {
+            results = []; searchState.resultsToken = ""
+            searching = false
+            return
+        }
+
+        let token = q + "|" + String(aggregator.revision)
+        if searchState.resultsToken == token { searching = false; return }
+        if searchState.resultsQuery != q {
+            searchState.windowStart = 0; searchState.windowCount = 400; searchState.anchorID = nil
+            searchState.resultsQuery = q
+        }
+        searching = true
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(180))
+            if Task.isCancelled { return }
+
+            if !loaded {
+                await ensureIndexesLoaded()
+            }
+
+            let catalogItems = aggregator.comics
+            let ranked = await Self.rank(catalogItems: catalogItems, query: q)
+            if Task.isCancelled { return }
+            results = ranked
+            searchState.resultsToken = q + "|" + String(aggregator.revision)
+            searching = false
+        }
+    }
+
+    /// Match titles across all loaded online catalogs, separator-insensitive, then rank the results.
+    private static func rank(catalogItems: [RemoteComic],
+                             query: String) async -> [UnifiedSearchItem] {
+        await Task.detached(priority: .userInitiated) {
+            let nq = SearchRank.normalize(query)
+            guard !nq.isEmpty else { return [] }
+
+            var ranked: [(item: UnifiedSearchItem, score: Int)] = []
+            for comic in catalogItems {
+                let nt = SearchRank.normalize(comic.title)
+                if nt.contains(nq) {
+                    ranked.append((.catalog(comic),
+                                   SearchRank.score(normalizedTitle: nt, normalizedQuery: nq)))
+                }
+                else if let series = comic.series {
+                    let ns = SearchRank.normalize(series)
+                    if ns.contains(nq) {
+                        ranked.append((.catalog(comic), 20))
+                    }
+                }
+            }
+
+            return ranked
+                .sorted { a, b in
+                    if a.score != b.score { return a.score > b.score }
+                    if a.item.title.count != b.item.title.count { return a.item.title.count < b.item.title.count }
+                    return a.item.title.localizedStandardCompare(b.item.title) == .orderedAscending
+                }
+                .map(\.item)
+        }.value
+    }
+
+    private func centered<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        content().frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A result card that makes the available action visible on the cover:
+/// a book badge means the source plugin can stream the comic; the download control marks
+/// catalog entries that have a direct downloadable file.
+private struct UnifiedSearchCard: View {
+    let item: UnifiedSearchItem
+    let onTap: () -> Void
+    private let downloads = DownloadManager.shared
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CoverTile {
+                if case .catalog(let comic) = item {
+                    PluginComicCover(comic: comic)
+                } else {
+                    CoverImage(url: item.coverURL, maxPixel: 320, resource: item.coverRequest) {
+                        Image(systemName: "book.closed")
+                            .font(.largeTitle).foregroundStyle(.white.opacity(0.4))
+                    }
+                }
+
+                if case .catalog(let comic) = item, comic.canRead {
+                    Image(systemName: "book.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.7), in: Circle())
+                        .padding(6)
+                        .help("Read online")
+                }
+
+                if case .catalog(let comic) = item, comic.hasMirrors {
+                    DownloadOverlay(item: CollectionItem(remote: comic))
+                }
+            }
+            .contentShape(Rectangle())
+            .pointingHandCursor()
+            .onTapGesture(perform: onTap)
+
+            HStack(spacing: 6) {
+                Text(TitleCleaner.clean(item.title))
+                    .font(.callout.weight(.medium)).foregroundStyle(.white)
+                    .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                Text(item.sourceName)
+                    .font(.caption2).foregroundStyle(.white.opacity(0.4))
+                    .lineLimit(1)
+            }
+        }
+        .brightness(hovering ? 0.08 : 0)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onHover { hovering = $0 }
+    }
+}

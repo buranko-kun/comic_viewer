@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+if [ "$#" -ne 2 ]; then
+  echo 'Usage: tools/test-source-plugin <plugin.js> <fixture-suite.json>' >&2
+  exit 2
+fi
+if [ -n "${COMIC_VIEWER_TEST_BINARY:-}" ]; then
+  exec "$COMIC_VIEWER_TEST_BINARY" --plugin-fixtures "$1" "$2"
+fi
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_dir=$(dirname -- "$script_dir")
+build_dir="$repo_dir/build/plugin-tests"
+mkdir -p "$build_dir"
+xcodebuild -project "$repo_dir/ComicViewer.xcodeproj" -scheme ComicViewer -configuration Debug -derivedDataPath "$build_dir" build > "$build_dir/build.log" 2>&1 || {
+  cat "$build_dir/build.log" >&2
+  exit 1
+}
+exec "$build_dir/Build/Products/Debug/ComicViewer.app/Contents/MacOS/ComicViewer" --plugin-fixtures "$1" "$2"

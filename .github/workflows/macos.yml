@@ -1,0 +1,39 @@
+name: macOS
+
+on:
+  push:
+    branches:
+      - main
+      - "refactor/**"
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - uses: actions/checkout@v4
+
+      # XcodeGen 2.46 generates project format 77, so the CI runner must use a modern Xcode.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Test macOS app
+        run: xcodebuild test -scheme ComicViewer -destination 'platform=macOS' -derivedDataPath build/ci
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Plugin JavaScript regressions
+        run: node --test examples/source-plugin-template.test.cjs
+
+      - name: Offline WebKit plugin fixtures
+        env:
+          COMIC_VIEWER_TEST_BINARY: ${{ github.workspace }}/build/ci/Build/Products/Debug/ComicViewer.app/Contents/MacOS/ComicViewer
+        run: tools/test-source-plugin examples/source-plugin-template.js examples/source-plugin-fixtures/suite.json

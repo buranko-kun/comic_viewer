@@ -1,0 +1,25 @@
+# Build products / caches
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode user-specific project state
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# SwiftPM
+.swiftpm/
+.build/
+
+# macOS
+.DS_Store
+
+# Personal development notes should stay local.
+PROJECT_NOTES.md
+
+# Private source integrations and their local backups are never published.
+/plugins/
+/scripts/
+/.local-backups/

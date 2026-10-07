@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "name": "Generic template reads catalogue cards",
+      "url": "https://example.com/comics",
+      "htmlFile": "catalog.html",
+      "repeat": 2,
+      "expected": {
+        "name": "My Comic Source",
+        "comics": [
+          {"title": "Example Issue One", "link": "https://example.com/issues/one", "cover": "https://example.com/covers/one.jpg", "canRead": true},
+          {"title": "Example Issue Two", "link": "https://example.com/issues/two", "cover": "https://example.com/covers/two.jpg", "canRead": true}
+        ],
+        "catalogs": []
+      }
+    },
+    {
+      "name": "Generic reader pages are deduplicated in original order",
+      "url": "https://example.com/issues/one",
+      "operation": "pages",
+      "htmlFile": "pages.html",
+      "expected": {"pages": ["https://example.com/pages/one.jpg", "https://example.com/pages/two.jpg"]}
+    },
+    {
+      "name": "Generic empty catalogue is valid",
+      "url": "https://example.com/comics",
+      "html": "<!doctype html><html><body></body></html>",
+      "expected": {"comics": [], "catalogs": []}
+    }
+  ]
+}
